@@ -164,10 +164,10 @@ class Commands:
                         addr, port = "unknown", None
 
                     fields_mapping = {
-                        "uuid": lambda s,d: d.get("uuid","unknown"),
-                        "address": lambda s,d: s.getpeername()[0] if s else "unknown",
-                        "port": lambda s,d: s.getpeername()[1] if s else None,
-                        "pubkey": lambda s,d: str(d.get("pubkey").public_numbers().n) if d.get("pubkey") else "N/A"
+                        "uuid": uuid,
+                        "address": sock.getpeername()[0] if sock else "unknown",
+                        "port": sock.getpeername()[1] if sock else None,
+                        "pubkey": str(data.get("pubkey").public_numbers().n) if data.get("pubkey") else "N/A"
                     }
 
                     if field in ['all', 'fields', 'list']:

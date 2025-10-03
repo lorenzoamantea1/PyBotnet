@@ -5,12 +5,11 @@ from .hybrid import HybridCrypto
 import uuid 
 
 class Server:
-    def __init__(self, host='0.0.0.0', port=547, debug=False):
+    def __init__(self, host='127.0.0.1', port=547, debug=False):
         self.debug = debug
         self.host = host
         self.port = port
 
-        # Logger setup
         self.logger = logging.getLogger("Server")
         self.logger.setLevel(logging.DEBUG if self.debug else logging.WARNING)
 

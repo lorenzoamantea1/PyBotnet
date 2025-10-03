@@ -1,5 +1,5 @@
 from random import choice, randint
-from ssl import SSLContext, CERT_NONE, create_default_context
+from ssl import SSLContext, CERT_NONE, PROTOCOL_TLS_CLIENT, CERT_REQUIRED
 from certifi import where
 from threading import Thread
 from urllib.parse import urlparse
@@ -64,9 +64,10 @@ class NetTools:
         return (headers + "\r\n" + _body).encode()
 
     def create_ssl_context(self) -> SSLContext:
-        ctx = create_default_context(cafile=where())
-        ctx.check_hostname = False
-        ctx.verify_mode = CERT_NONE
+        ctx = SSLContext(PROTOCOL_TLS_CLIENT)
+        ctx.load_verify_locations(cafile=where())
+        ctx.check_hostname = True
+        ctx.verify_mode = CERT_REQUIRED
         return ctx
 
     def generate_spoofed_ip(self) -> str:

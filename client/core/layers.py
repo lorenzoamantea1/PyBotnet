@@ -25,6 +25,8 @@ class L7:
         body: str = "",
         body_len: int = 256
     ) -> None:
+        ctx = self.net_tools.create_ssl_context()
+        
         with suppress(Exception):
             while (self.until - datetime.now()).total_seconds() > 0:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

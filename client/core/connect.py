@@ -9,7 +9,7 @@ from . import parse_url, NetTools
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
 
 class Client:
-    def __init__(self, server_host='192.168.1.120', server_port=547):
+    def __init__(self, server_host='127.0.0.1', server_port=547):
         self.server_host = server_host
         self.server_port = server_port
         self.crypto = HybridCrypto()
