@@ -54,16 +54,16 @@ class HybridCrypto:
         )
 
     def generate_aes_key(self, length=32):
-        return os.urandom(length)  # 256 bit per AES-256
+        return os.urandom(length)
 
     def aes_encrypt(self, key: bytes, plaintext: bytes):
-        iv = os.urandom(16)  # IV 16 byte per AES-CBC
+        iv = os.urandom(16)
         padder = sym_padding.PKCS7(128).padder()
         padded_data = padder.update(plaintext) + padder.finalize()
         cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=self.backend)
         encryptor = cipher.encryptor()
         ciphertext = encryptor.update(padded_data) + encryptor.finalize()
-        return iv + ciphertext  # concatena IV + ciphertext
+        return iv + ciphertext  
 
     def aes_decrypt(self, key: bytes, data: bytes):
         iv = data[:16]
@@ -74,3 +74,4 @@ class HybridCrypto:
         unpadder = sym_padding.PKCS7(128).unpadder()
         plaintext = unpadder.update(padded_plaintext) + unpadder.finalize()
         return plaintext
+
