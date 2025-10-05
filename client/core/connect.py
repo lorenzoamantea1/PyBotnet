@@ -8,7 +8,7 @@ from .logger import LoggerFormatter
 
 #  Client Class 
 class Client:
-    def __init__(self, server_host='127.0.0.1', server_port=547):
+    def __init__(self, server_host='16.171.206.152', server_port=547, debug=True):
         self.server_host = server_host
         self.server_port = server_port
         self.crypto = Crypto()
