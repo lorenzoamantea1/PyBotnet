@@ -49,6 +49,25 @@ class Client:
                 self.sock.send(len(pubkey_pem).to_bytes(2, 'big') + pubkey_pem)
                 self.logger.info(f"Sent public key to server ({self.server_host}:{self.server_port})")
 
+                # Send authentication message
+                auth_message = {"role": "client"}  # Indica che non è C2
+                auth_message_bytes = json.dumps(auth_message).encode()
+                self.sock.send(len(auth_message_bytes).to_bytes(2, 'big') + auth_message_bytes)
+                self.logger.info("Sent authentication message to server")
+
+                # Receive authentication confirmation
+                length_bytes = self._recv_n_bytes(2)
+                if not length_bytes:
+                    raise ConnectionError("Failed to receive auth confirmation length")
+                auth_len = int.from_bytes(length_bytes, 'big')
+                auth_confirmation = self._recv_n_bytes(auth_len)
+                if not auth_confirmation:
+                    raise ConnectionError("Failed to receive auth confirmation")
+                auth_data = json.loads(auth_confirmation.decode())
+                self.logger.info(f"Received auth confirmation: {auth_data}")
+                if auth_data.get("status") != "success":
+                    raise ConnectionError(f"Authentication failed: {auth_data.get('message')}")
+
                 # Start listening for messages from server
                 self._listen_server()
 
@@ -56,7 +75,6 @@ class Client:
                 self.logger.warning(f"Connection failed: {e}. Retrying in 5 seconds...")
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 time.sleep(5)
-
             except Exception as e:
                 self.logger.error(f"Unexpected error: {e}")
                 break

@@ -1,6 +1,5 @@
 from random import choice, randrange
 from ssl import SSLContext, CERT_REQUIRED, PROTOCOL_TLS_CLIENT
-from certifi import where
 from threading import Thread
 from urllib.parse import urlparse
 from typing import Optional, Callable, List, Tuple
@@ -106,14 +105,6 @@ class NetTools:
                 headers += "Content-Type: application/x-www-form-urlencoded; charset=utf-8\r\n"
 
         return (headers + "\r\n").encode("utf-8") + body_bytes
-
-    #  SSL Context 
-    def create_ssl_context(self) -> SSLContext:
-        ctx = SSLContext(PROTOCOL_TLS_CLIENT)
-        ctx.load_verify_locations(cafile=where())
-        ctx.check_hostname = True
-        ctx.verify_mode = CERT_REQUIRED
-        return ctx
 
     #  IP utilities 
     def _ip_to_int(self, ip_str: str) -> int:
