@@ -5,20 +5,14 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding as sym_padding
 from cryptography.hazmat.backends import default_backend
-from .logger import LoggerFormatter
+from .logger import getLogger
 
 #  Crypto Class 
 class Crypto:
     def __init__(self, debug=False):
         self.backend = default_backend()  # Backend for cryptography operations
 
-        self.logger = logging.getLogger("node")
-        self.logger.setLevel(logging.DEBUG if debug else logging.WARNING)
-        if not self.logger.handlers:
-            ch = logging.StreamHandler()
-            ch.setLevel(logging.DEBUG if debug else logging.WARNING)
-            ch.setFormatter(LoggerFormatter())
-            self.logger.addHandler(ch)
+        self.logger = getLogger("Crypto",debug)
 
         self.logger.debug("Crypto module initialized (debug=%s)", debug)
 
@@ -58,15 +52,15 @@ class Crypto:
     # Load RSA keys from files
     def load_rsa_keys(self):
         try:
-            with open("keys/pub.key", "rb") as f:
+            with open("data/keys/pub.key", "rb") as f:
                 pub = self.load_public_key(f.read())
-            with open("keys/priv.key", "rb") as f:
+            with open("data/keys/priv.key", "rb") as f:
                 priv = self.load_private_key(f.read())
         except:
             priv, pub = self.generate_rsa_keys()
-            with open("keys/pub.key", "w") as f:
+            with open("data/keys/pub.key", "w") as f:
                 f.write(self.serialize_public_key(pub).decode())
-            with open("keys/priv.key", "w") as f:
+            with open("data/keys/priv.key", "w") as f:
                 f.write(self.serialize_private_key(priv).decode())
         return priv, pub
         

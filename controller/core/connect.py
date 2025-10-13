@@ -3,207 +3,276 @@ import threading
 import logging
 import uuid
 import json
-from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from .crypto import Crypto
-from .logger import LoggerFormatter
+from .logger import getLogger
 
-class C2Client:
-    def __init__(self, nodes, debug=False):
-        self.nodes = nodes
+class Controller:
+    def __init__(self, nodes, debug=False, socket_timeout=1.5):
+        """Initialize controller"""
+        self.nodes = self._validate_nodes(nodes)
         self.debug = debug
+        self.socket_timeout = socket_timeout
         self.running = False
         self.connections = {}
         self.connections_lock = threading.Lock()
-    
-        # Logger setup
-        self.logger = logging.getLogger("C2Client")
-        self.logger.setLevel(logging.DEBUG if debug else logging.WARNING)
-        if not self.logger.handlers:
-            ch = logging.StreamHandler()
-            ch.setLevel(logging.DEBUG if debug else logging.WARNING)
-            ch.setFormatter(LoggerFormatter())
-            self.logger.addHandler(ch)
-
-        # Crypto setup
+        self.shutdown_event = threading.Event()
+        self.logger = getLogger("Controller", debug)
         self.crypto = Crypto()
         self.private_key, self.public_key = self.crypto.load_rsa_keys()
 
-    # --- Connection Management ---
+    def _validate_nodes(self, nodes):
+        """Validate node list format and content."""
+        if not nodes or not all(isinstance(node, tuple) and len(node) == 2 and
+                               isinstance(node[0], str) and isinstance(node[1], int)
+                               for node in nodes):
+            raise ValueError("Nodes must be a list of (host, port) tuples")
+        return nodes
 
-    #  Setup all nodes 
     def setup_sockets(self):
+        self.logger.info("Setting up connections to all nodes")
         self.running = True
         for host, port in self.nodes:
-            node_id = self.connect_to_node(host, port)
+            node_id = self._connect_and_authenticate_node(host, port)
             if node_id:
-                # Start a thread for each node
-                threading.Thread(target=self.handle_connection, args=(node_id,), daemon=True).start()
+                threading.Thread(target=self._handle_connection, args=(node_id,), daemon=True).start()
 
-    #  Connect to a node 
-    def connect_to_node(self, host, port):
-        client_socket = None
+    def _connect_and_authenticate_node(self, host, port):
+        """Connect to a node, exchange keys, and authenticate."""
+        client_socket = self._create_socket(host, port)
+        if not client_socket:
+            return None
+
         try:
-            # Connect socket
+            node_pubkey = self._receive_node_public_key(client_socket, host, port)
+            if not node_pubkey:
+                client_socket.close()
+                return None
+
+            if not self._send_controller_public_key(client_socket, host, port):
+                client_socket.close()
+                return None
+
+            if not self._authenticate_controller(client_socket, host, port):
+                client_socket.close()
+                return None
+
+            node_id = self._store_connection(client_socket, host, port, node_pubkey)
+            self.logger.info(f"Connected to node {host}:{port} with ID {node_id}")
+            return node_id
+
+        except (socket.error, ValueError, json.JSONDecodeError) as e:
+            self.logger.error(f"Unexpected error connecting to {host}:{port}: {type(e).__name__}: {e}")
+            self._close_socket(client_socket, host, port)
+            return None
+
+    def _create_socket(self, host, port):
+        try:
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.settimeout(5.0)  # Set timeout for connection and response
+            client_socket.settimeout(self.socket_timeout)
             client_socket.connect((host, port))
+            return client_socket
+        except (socket.timeout, socket.gaierror, ConnectionError) as e:
+            self.logger.error(f"Failed to connect to {host}:{port}: {type(e).__name__}: {e}")
+            return None
 
-            # Receive node public key
-            key_len_bytes = self.receive_bytes(client_socket, 2)
-            if not key_len_bytes:
-                raise ConnectionError("Failed to receive node key length")
-            key_len = int.from_bytes(key_len_bytes, 'big')
+    def _receive_node_public_key(self, client_socket, host, port):
+        # Receive key length (2 bytes) followed by public key in PEM format
+        key_len_bytes = self.receive_bytes(client_socket, 2)
+        if not key_len_bytes:
+            self.logger.error(f"Failed to receive public key length from {host}:{port}")
+            return None
 
-            node_pubkey_pem = self.receive_bytes(client_socket, key_len)
-            if not node_pubkey_pem:
-                raise ConnectionError("Failed to receive node key")
-            node_pubkey = self.crypto.load_public_key(node_pubkey_pem)
+        key_len = int.from_bytes(key_len_bytes, 'big')
+        node_pubkey_pem = self.receive_bytes(client_socket, key_len)
+        if not node_pubkey_pem:
+            self.logger.error(f"Failed to receive public key from {host}:{port}")
+            return None
 
-            # Send own public key
+        return self.crypto.load_public_key(node_pubkey_pem)
+
+    def _send_controller_public_key(self, client_socket, host, port):
+        try:
             pubkey_pem = self.crypto.serialize_public_key(self.public_key)
             client_socket.send(len(pubkey_pem).to_bytes(2, 'big') + pubkey_pem)
-            self.logger.debug(f"Sent public key to {host}:{port}")
+            return True
+        except socket.error as e:
+            self.logger.error(f"Failed to send public key to {host}:{port}: {type(e).__name__}: {e}")
+            return False
 
-            # Authenticate as C2
-            auth_msg = json.dumps({"role": "C2"}).encode()
+    def _authenticate_controller(self, client_socket, host, port):
+        # Send JSON payload with role and signature, expect success confirmation
+        try:
+            auth_msg = json.dumps({"role": "controller"}).encode()
             signature = self.crypto.sign(self.private_key, auth_msg)
-            auth_payload = json.dumps({"role": "C2", "signature": signature.hex()}).encode()
+            auth_payload = json.dumps({"role": "controller", "signature": signature.hex()}).encode()
             client_socket.send(len(auth_payload).to_bytes(2, 'big') + auth_payload)
-            self.logger.debug(f"Sent auth payload to {host}:{port}: {auth_payload.decode()}")
 
-            # Receive confirmation from node
             length_bytes = self.receive_bytes(client_socket, 2)
             if not length_bytes:
-                raise ConnectionError("Failed to receive confirmation length")
+                self.logger.error(f"Failed to receive confirmation length from {host}:{port}")
+                return False
+
             confirm_len = int.from_bytes(length_bytes, 'big')
             confirm_message = self.receive_bytes(client_socket, confirm_len)
             if not confirm_message:
-                raise ConnectionError("Failed to receive confirmation message")
-            
+                self.logger.error(f"Failed to receive confirmation message from {host}:{port}")
+                return False
+
             confirm_data = json.loads(confirm_message.decode())
-            self.logger.debug(f"Received confirmation from {host}:{port}: {confirm_data}")
             if confirm_data.get("status") != "success":
                 error_msg = confirm_data.get("message", "No error message provided")
-                raise ConnectionError(f"Node rejected connection: {error_msg}")
+                self.logger.error(f"Node {host}:{port} rejected connection: {error_msg}")
+                return False
 
-            # Store connection
-            node_id = str(uuid.uuid4())[:8]
-            with self.connections_lock:
-                self.connections[node_id] = {
-                    "socket": client_socket,
-                    "host": host,
-                    "port": port,
-                    "pubkey": node_pubkey
-                }
+            return True
+        except (json.JSONDecodeError, socket.error) as e:
+            self.logger.error(f"Authentication failed for {host}:{port}: {type(e).__name__}: {e}")
+            return False
 
-            self.logger.info(f"\x1b[38;5;46;48;5;22mConnected to node :: {host}:{port}\x1b[0m")
-            return node_id
+    def _store_connection(self, client_socket, host, port, node_pubkey):
+        node_id = str(uuid.uuid4())[:8]
+        with self.connections_lock:
+            self.connections[node_id] = {
+                "socket": client_socket,
+                "host": host,
+                "port": port,
+                "pubkey": node_pubkey,
+                "uuid": node_id
+            }
+        return node_id
 
-        except socket.timeout:
-            self.logger.error(f"Timeout connecting to {host}:{port}")
-            if client_socket:
-                try:
-                    client_socket.close()
-                except:
-                    pass
-            return None
-        except ConnectionResetError:
-            self.logger.error(f"Connection reset by {host}:{port}")
-            if client_socket:
-                try:
-                    client_socket.close()
-                except:
-                    pass
-            return None
-        except Exception as e:
-            self.logger.error(f"Failed to connect to {host}:{port}: {e}")
-            if client_socket:
-                try:
-                    client_socket.close()
-                except:
-                    pass
-            return None
+    def _close_socket(self, client_socket, host, port):
+        if client_socket:
+            try:
+                client_socket.setblocking(False)
+                client_socket.close()
+            except socket.error as e:
+                self.logger.warning(f"Failed to close socket for {host}:{port}: {type(e).__name__}: {e}")
 
-    #  Handle a node 
-    def handle_connection(self, node_id):
+    def _handle_connection(self, node_id):
+        with self.connections_lock:
+            if node_id not in self.connections:
+                self.logger.error(f"Node {node_id} not found")
+                return
+
         try:
-            while self.running:
-                # Idle loop, can be extended for receiving messages
-                threading.Event().wait(1)
+            while self.running and not self.shutdown_event.is_set():
+                self.shutdown_event.wait(1)
         except Exception as e:
-            self.logger.error(f"Error in connection to node {node_id}: {e}")
+            self.logger.error(f"Error in connection to node {node_id}: {type(e).__name__}: {e}")
         finally:
             self.disconnect_node(node_id)
 
-    #  Disconnect a node 
     def disconnect_node(self, node_id):
         with self.connections_lock:
-            if node_id in self.connections:
-                try:
-                    self.connections[node_id]["socket"].close()
-                except:
-                    pass
-                del self.connections[node_id]
-                self.logger.info(f"Disconnected node {node_id}")
+            if node_id not in self.connections:
+                self.logger.warning(f"Node {node_id} not found for disconnection")
+                return
+            try:
+                self.connections[node_id]["socket"].close()
+            except socket.error as e:
+                self.logger.warning(f"Failed to close socket for node {node_id}: {type(e).__name__}: {e}")
+            del self.connections[node_id]
+        self.logger.info(f"Disconnected node {node_id}")
 
-    #  Shutdown all connections 
     def shutdown(self):
         self.logger.info("Shutting down all node connections")
         self.running = False
+        self.shutdown_event.set()
         with self.connections_lock:
-            for node_id in list(self.connections.keys()):
-                self.disconnect_node(node_id)
+            nodes = list(self.connections.items())
+        for node_id, node_data in nodes:
+            try:
+                node_data["socket"].setblocking(False)
+                node_data["socket"].close()
+            except socket.error as e:
+                self.logger.warning(f"Failed to close socket for node {node_id}: {e}")
+            with self.connections_lock:
+                if node_id in self.connections:
+                    del self.connections[node_id]
         self.logger.info("All connections shut down")
 
-    # --- Messaging ---
-
-    #  Send to one node 
     def send_to(self, node_id, message):
         try:
             with self.connections_lock:
                 node_data = self.connections.get(node_id)
                 if not node_data:
-                    raise ConnectionError(f"node {node_id} not connected")
+                    self.logger.error(f"Node {node_id} not connected")
+                    return
 
             client_socket = node_data["socket"]
             message_bytes = message.encode()
             signature = self.crypto.sign(self.private_key, message_bytes)
 
-            # Send message and signature
             client_socket.send(len(message_bytes).to_bytes(2, 'big') + message_bytes)
             client_socket.send(len(signature).to_bytes(2, 'big') + signature)
 
             self.logger.info(f"Sent message to node {node_id}: {message}")
 
-        except Exception as e:
-            self.logger.warning(f"Failed to send to node {node_id}: {e}")
-            self.disconnect_node(node_id)
+            return self.get_node_response(node_data)
 
-    #  Send to all nodes 
+        except socket.error as e:
+            self.logger.error(f"Failed to send message to node {node_id}: {type(e).__name__}: {e}")
+            return self.disconnect_node(node_id)
+
+    def get_node_response(self, node_data):
+        length_bytes = self.receive_bytes(node_data["socket"], 2)
+        if not length_bytes:
+            self.logger.info("Server closed connection")
+
+        encrypted_session_key_len = int.from_bytes(length_bytes, 'big')
+        encrypted_session_key = self.receive_bytes(node_data["socket"], encrypted_session_key_len)
+        if not encrypted_session_key:
+            self.logger.warning("Failed to receive session key")
+
+        # Receive encrypted message
+        length_bytes = self.receive_bytes(node_data["socket"], 2)
+        if not length_bytes:
+            self.logger.warning("Failed to receive message length")
+
+        encrypted_msg_len = int.from_bytes(length_bytes, 'big')
+        encrypted_msg = self.receive_bytes(node_data["socket"], encrypted_msg_len)
+        if not encrypted_msg:
+            self.logger.warning("Failed to receive message")
+
+        # Decrypt message
+        session_key = self.crypto.rsa_decrypt(self.private_key, encrypted_session_key)
+        message = self.crypto.aes_decrypt(session_key, encrypted_msg).decode()
+        self.logger.info(f"Received message from {node_data["uuid"]}")
+        return message
+
     def send_to_all(self, message):
         with self.connections_lock:
             nodes = list(self.connections.items())
         if not nodes:
             self.logger.warning("No nodes connected")
-            return
+            return "No nodes connected", False
 
+        self.logger.info(f"Sending message to {len(nodes)} nodes")
+
+        responses = {}
         for node_id, _ in nodes:
-            self.send_to(node_id, message)
+            resp = self.send_to(node_id, message)
+            responses[node_id] = json.loads(resp)
 
-    # --- Utility Methods ---
+        return responses, True
 
-    #  Receive fixed bytes 
-    def receive_bytes(self, sock, n):
+    def receive_bytes(self, sock, n, timeout=None):
+        if timeout is not None:
+            sock.settimeout(timeout)
         data = b''
         while len(data) < n:
-            chunk = sock.recv(n - len(data))
-            if not chunk:
+            try:
+                chunk = sock.recv(n - len(data))
+                if not chunk:
+                    self.logger.warning(f"Connection closed while receiving {n} bytes")
+                    return None
+                data += chunk
+            except socket.timeout:
                 return None
-            data += chunk
         return data
 
-    #  Get list of nodes 
     def get_nodes(self):
         with self.connections_lock:
             return [(node_id, d["host"], d["port"]) for node_id, d in self.connections.items()]

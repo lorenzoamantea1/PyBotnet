@@ -5,20 +5,14 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding as sym_padding
 from cryptography.hazmat.backends import default_backend
-from .logger import LoggerFormatter
+from .logger import getLogger
 
 #  Crypto Class 
 class Crypto:
     def __init__(self, debug=False):
         self.backend = default_backend()  # Backend for cryptography operations
 
-        self.logger = logging.getLogger("node")
-        self.logger.setLevel(logging.DEBUG if debug else logging.WARNING)
-        if not self.logger.handlers:
-            ch = logging.StreamHandler()
-            ch.setLevel(logging.DEBUG if debug else logging.WARNING)
-            ch.setFormatter(LoggerFormatter())
-            self.logger.addHandler(ch)
+        self.logger = getLogger("Cryptography", debug)
 
         self.logger.debug("Crypto module initialized (debug=%s)", debug)
 

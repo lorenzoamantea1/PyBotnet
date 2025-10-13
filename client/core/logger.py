@@ -1,10 +1,20 @@
 import logging, re, sys
 
+def getLogger(name, debug):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    if not logger.handlers:  
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.DEBUG if debug else logging.INFO)
+        handler.setFormatter(LoggerFormatter())
+        logger.addHandler(handler)
+    return logger
+
 class LoggerFormatter(logging.Formatter):
     GREY = "\x1b[38;20m"
     CYAN = "\x1b[38;5;51;48;5;21m"
     YELLOW = "\x1b[38;5;220m"
-    YELLOW_2 = "\x1b[38;5;220;48;5;94m"
+
     RED = "\x1b[38;5;203;48;5;52m"
     BOLD_RED = "\x1b[1;38;5;196m"
     RESET = "\x1b[0m"
@@ -21,7 +31,7 @@ class LoggerFormatter(logging.Formatter):
     FORMATS = {
         logging.DEBUG: YELLOW + BASE_FORMAT + RESET,
         logging.INFO: GREY + BASE_FORMAT + RESET,
-        logging.WARNING: YELLOW_2 + BASE_FORMAT + RESET,
+        logging.WARNING: YELLOW + BASE_FORMAT + RESET,
         logging.ERROR: RED + BASE_FORMAT + RESET,
         logging.CRITICAL: BOLD_RED + BASE_FORMAT + RESET
     }

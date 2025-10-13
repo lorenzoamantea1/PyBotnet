@@ -1,0 +1,13 @@
+{
+    "address": {
+        "host": "127.0.0.1",
+        "port": 547
+    },
+
+    "clients": {
+        "max_clients": 5,
+        "client_overflow_sleep_s": 3600
+    },
+
+    "debug": false
+}
