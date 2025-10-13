@@ -4,6 +4,7 @@ import time
 import json
 from .crypto import Crypto
 from .logger import getLogger
+from . import NetTools, Endpoint, parse_url 
 
 # Client Class
 class Client:
@@ -138,7 +139,7 @@ class Client:
                             int(msg_json["data"]["threads"])
                     )
 
-                    if action == "redirect":
+                    elif action == "redirect":
                         current_node = f"{self.server_host}:{self.server_port}"
                         new_host = msg_json["data"]["host"]
                         new_port = msg_json["data"]["port"]
