@@ -6,6 +6,7 @@ import json
 from cryptography.hazmat.primitives.asymmetric import padding
 from .crypto import Crypto
 from .logger import getLogger
+from .constants import BUFFER_SIZE_LENGTH
 
 class Controller:
     def __init__(self, nodes, debug=False, socket_timeout=1.5):
@@ -78,7 +79,7 @@ class Controller:
 
     def _receive_node_public_key(self, client_socket, host, port):
         # Receive key length (2 bytes) followed by public key in PEM format
-        key_len_bytes = self.receive_bytes(client_socket, 2)
+        key_len_bytes = self.receive_bytes(client_socket, BUFFER_SIZE_LENGTH)
         if not key_len_bytes:
             self.logger.error(f"Failed to receive public key length from {host}:{port}")
             return None
@@ -94,7 +95,7 @@ class Controller:
     def _send_controller_public_key(self, client_socket, host, port):
         try:
             pubkey_pem = self.crypto.serialize_public_key(self.public_key)
-            client_socket.sendall(len(pubkey_pem).to_bytes(2, 'big') + pubkey_pem)
+            client_socket.sendall(len(pubkey_pem).to_bytes(BUFFER_SIZE_LENGTH, 'big') + pubkey_pem)
             return True
         except socket.error as e:
             self.logger.error(f"Failed to send public key to {host}:{port}: {type(e).__name__}: {e}")
@@ -106,9 +107,9 @@ class Controller:
             auth_msg = json.dumps({"role": "controller"}).encode()
             signature = self.crypto.sign(self.private_key, auth_msg)
             auth_payload = json.dumps({"role": "controller", "signature": signature.hex()}).encode()
-            client_socket.sendall(len(auth_payload).to_bytes(2, 'big') + auth_payload)
+            client_socket.sendall(len(auth_payload).to_bytes(BUFFER_SIZE_LENGTH, 'big') + auth_payload)
 
-            length_bytes = self.receive_bytes(client_socket, 2)
+            length_bytes = self.receive_bytes(client_socket, BUFFER_SIZE_LENGTH)
             if not length_bytes:
                 self.logger.error(f"Failed to receive confirmation length from {host}:{port}")
                 return False
@@ -204,8 +205,8 @@ class Controller:
             message_bytes = message.encode()
             signature = self.crypto.sign(self.private_key, message_bytes)
 
-            client_socket.sendall(len(message_bytes).to_bytes(2, 'big') + message_bytes)
-            client_socket.sendall(len(signature).to_bytes(2, 'big') + signature)
+            client_socket.sendall(len(message_bytes).to_bytes(BUFFER_SIZE_LENGTH, 'big') + message_bytes)
+            client_socket.sendall(len(signature).to_bytes(BUFFER_SIZE_LENGTH, 'big') + signature)
 
             self.logger.info(f"Sent message to node {node_id}")
             self.logger.debug(message)
@@ -217,7 +218,7 @@ class Controller:
             return self.disconnect_node(node_id)
 
     def get_node_response(self, node_data):
-        length_bytes = self.receive_bytes(node_data["socket"], 2)
+        length_bytes = self.receive_bytes(node_data["socket"], BUFFER_SIZE_LENGTH)
         if not length_bytes:
             self.logger.info("Server closed connection")
             return None
@@ -233,7 +234,7 @@ class Controller:
             return None
 
         # Receive encrypted message
-        length_bytes = self.receive_bytes(node_data["socket"], 2)
+        length_bytes = self.receive_bytes(node_data["socket"], BUFFER_SIZE_LENGTH)
         if not length_bytes:
             self.logger.warning("Failed to receive message length")
             return None

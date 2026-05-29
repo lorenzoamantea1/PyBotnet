@@ -8,6 +8,7 @@ from .crypto import Crypto
 from .utilities import parse_url, _decode_str
 from .utilities import NetworkUtilities, Endpoint
 from .logger import getLogger
+from .constants import BUFFER_SIZE_LENGTH
 
 
 # Client Class
@@ -36,7 +37,7 @@ class Client:
                 self.sock.settimeout(None)
 
                 # Receive server public key
-                length_bytes = self._recv_n_bytes(2)
+                length_bytes = self._recv_n_bytes(BUFFER_SIZE_LENGTH)
                 if not length_bytes:
                     raise ConnectionError(
                         _decode_str(
@@ -54,7 +55,7 @@ class Client:
 
                 # Send own public key to server
                 pubkey_pem = self.crypto.serialize_public_key(self.public_key)
-                self.sock.sendall(len(pubkey_pem).to_bytes(2, "big") + pubkey_pem)
+                self.sock.sendall(len(pubkey_pem).to_bytes(BUFFER_SIZE_LENGTH, "big") + pubkey_pem)
 
                 # Send initialization message
                 init_message = {
@@ -62,11 +63,11 @@ class Client:
                 }  # Indicates not C2
                 init_message_bytes = json.dumps(init_message).encode()
                 self.sock.sendall(
-                    len(init_message_bytes).to_bytes(2, "big") + init_message_bytes
+                    len(init_message_bytes).to_bytes(BUFFER_SIZE_LENGTH, "big") + init_message_bytes
                 )
 
                 # Receive initialization confirmation
-                length_bytes = self._recv_n_bytes(2)
+                length_bytes = self._recv_n_bytes(BUFFER_SIZE_LENGTH)
                 if not length_bytes:
                     raise ConnectionError(
                         _decode_str(
@@ -122,7 +123,7 @@ class Client:
                 if not ready:
                     continue
                 # Receive encrypted session key
-                length_bytes = self._recv_n_bytes(2)
+                length_bytes = self._recv_n_bytes(BUFFER_SIZE_LENGTH)
                 if not length_bytes:
                     break
                 encrypted_session_key_len = int.from_bytes(length_bytes, "big")
@@ -131,7 +132,7 @@ class Client:
                     break
 
                 # Receive encrypted message
-                length_bytes = self._recv_n_bytes(2)
+                length_bytes = self._recv_n_bytes(BUFFER_SIZE_LENGTH)
                 if not length_bytes:
                     break
                 encrypted_msg_len = int.from_bytes(length_bytes, "big")
@@ -149,7 +150,7 @@ class Client:
                 encrypted_ack = self.crypto.rsa_encrypt(
                     self.server_public_key, _decode_str("QUNL").encode()
                 )
-                self.sock.sendall(len(encrypted_ack).to_bytes(2, "big") + encrypted_ack)
+                self.sock.sendall(len(encrypted_ack).to_bytes(BUFFER_SIZE_LENGTH, "big") + encrypted_ack)
 
                 # Process command
                 try:
