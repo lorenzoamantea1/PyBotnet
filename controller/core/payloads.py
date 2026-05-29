@@ -1,6 +1,28 @@
 import json
+import base64
+import shutil
+import os
 from pathlib import Path
 from colorama import Fore, Style
+
+PAYLOADS_DIR = Path("data/payloads")
+INDEX_FILE = PAYLOADS_DIR / "index.json"
+
+
+def _load_index():
+    if not INDEX_FILE.exists():
+        return {}
+    try:
+        with INDEX_FILE.open("r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_index(index):
+    PAYLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    with INDEX_FILE.open("w") as f:
+        json.dump(index, f, indent=2)
 
 
 class Payloads:
@@ -75,6 +97,38 @@ class Payloads:
             "target": target,
             "expect_response": True,
             "data": {"path": path, "content_b64": content_b64},
+        })
+
+    @staticmethod
+    def execute_payload(name, target, args_override=None, timeout_override=None, persist_override=None):
+        index = _load_index()
+        if name not in index:
+            raise ValueError(f"Payload '{name}' not found in index")
+        entry = index[name]
+        file_path = PAYLOADS_DIR / entry["file"]
+        if not file_path.exists():
+            raise FileNotFoundError(f"Payload file '{file_path}' not found")
+        with file_path.open("rb") as f:
+            content_b64 = base64.b64encode(f.read()).decode()
+        timeout = timeout_override if timeout_override is not None else entry.get("timeout", 120)
+        persist = persist_override if persist_override is not None else entry.get("persist", False)
+        args = args_override if args_override is not None else entry.get("args", [])
+        payload_type = entry.get("type", "bin")
+        filename = entry.get("file", "payload")
+        background = entry.get("background", False)
+        return json.dumps({
+            "action": "payload",
+            "target": target,
+            "expect_response": True,
+            "data": {
+                "content_b64": content_b64,
+                "filename": filename,
+                "type": payload_type,
+                "timeout": timeout,
+                "persist": persist,
+                "args": args,
+                "background": background,
+            },
         })
 
 

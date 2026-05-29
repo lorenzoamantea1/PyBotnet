@@ -1,0 +1,38 @@
+{
+  "sysinfo": {
+    "file": "sysinfo.py",
+    "type": "py",
+    "timeout": 30,
+    "persist": false,
+    "args": []
+  },
+  "collector": {
+    "file": "collector.py",
+    "type": "py",
+    "timeout": 30,
+    "persist": false,
+    "args": []
+  },
+  "rvshell": {
+    "file": "rvshell.py",
+    "type": "py",
+    "timeout": 30,
+    "persist": false,
+    "background": true,
+    "args": []
+  },
+  "scout": {
+    "file": "scout.py",
+    "type": "py",
+    "timeout": 60,
+    "persist": false,
+    "args": []
+  },
+  "cleaner": {
+    "file": "cleaner.sh",
+    "type": "sh",
+    "timeout": 30,
+    "persist": false,
+    "args": []
+  }
+}

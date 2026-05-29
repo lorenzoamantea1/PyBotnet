@@ -102,6 +102,13 @@ class Shell:
                     "! <command>",
                     "Execute a shell command (admin only)",
                 ),
+                (
+                    "payload",
+                    self._payload,
+                    3,
+                    "payload <list|send|add|remove> [params]",
+                    "Manage and deploy payloads to clients",
+                ),
             ]
         }
         self.commands_impl = Commands(controller, self)
@@ -140,6 +147,9 @@ class Shell:
 
     def _shell_exec(self, shell, args):
         self.commands_impl.shell_exec(shell, args)
+
+    def _payload(self, shell, args):
+        self.commands_impl.payload(shell, args)
 
     def _setup_readline(self):
         readline.set_completer(self._complete)
@@ -200,6 +210,15 @@ class Shell:
                     for node_id, _, _ in nodes
                     if node_id.startswith(parts[2])
                 )
+        elif text.startswith("payload "):
+            subcommands = ["list", "send", "add", "remove"]
+            parts = text.split(" ")
+            subtext = parts[1] if len(parts) > 1 else ""
+            options = [
+                f"payload {subcmd}"
+                for subcmd in subcommands
+                if subcmd.startswith(subtext)
+            ]
         elif text.startswith("flood "):
             parts = text.split(" ")
             if len(parts) == 2:

