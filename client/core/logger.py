@@ -1,6 +1,6 @@
 import logging, re, sys
 
-def getLogger(name, debug):
+def getLogger(name, debug=False):
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG if debug else logging.INFO)
     if not logger.handlers:

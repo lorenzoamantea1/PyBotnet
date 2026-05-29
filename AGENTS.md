@@ -14,7 +14,7 @@ controller/  →  node/  →  client/     (TCP, RSA auth, AES-GCM cmds)
 | `node/main.py` | TCP server, authenticates controller, relays to clients | Bridge |
 | `client/main.py` | TCP client, connects to node, executes flood attacks | Worker |
 
-Each component has a `core/` subdir with its own copy of crypto, logger, and error modules — **don't assume shared code**.
+Each component has a `core/` subdir with its own copy of crypto, logger, error, and constants modules — **don't assume shared code**.
 
 ## Setup
 
@@ -36,7 +36,7 @@ All components must be run from their own directory (working dir = component roo
 
 ## Protocol quirks
 
-- Every message has a 2-byte big-endian length prefix
+- Every message has a 2-byte big-endian length prefix (`BUFFER_SIZE_LENGTH` in `*/core/constants.py`)
 - Key exchange: PEM RSA-2048 pubkeys, then auth JSON with `role` + RSA-PSS signature
 - Commands to clients: AES-256-GCM session key wrapped with RSA-OAEP
 - Node auto-accepts both `controller` and `client` roles in the same TCP listener (port 547)
@@ -73,7 +73,8 @@ Throughout the codebase, string literals are base64-encoded and decoded at runti
 
 - Reconnects with backoff on connection loss; max 5 redirects
 - Can receive `wait` (sleep + retry) or `redirect` (reconnect to different node) commands
-- Flood execution: L7 uses `aiohttp`, L4 uses raw `asyncio` sockets, H2 uses `h2` lib, DNS uses `scapy`, WS uses `aiohttp`
+- Flood execution: L7 uses `aiohttp`, L4 uses raw `asyncio` sockets, H2 uses `h2` lib, DNS uses `scapy`, WS uses `aiohttp`, MC uses raw TCP sockets
+- All flood classes extend `BaseFlood` in `client/core/layers.py` which provides `_is_expired()` for expiry, `_tasks` tracking, and `wait_done()` with optional cleanup hook
 - Spoofed IP in L4 flood uses `scapy` (may need root)
 - Private/reserved IP whitelisting is **commented out** in `parse_url()` — no protection
 
@@ -89,7 +90,7 @@ Throughout the codebase, string literals are base64-encoded and decoded at runti
 ## Conventions
 
 - No tests, no CI, no formatter/linter config, no type checker
-- `.gitignore` excludes `__pycache__/`, `*.pyc`, `*.key`, `*/builder.py`, `*/onefile.py`
+- `.gitignore` excludes `__pycache__/`, `*.pyc`, `*.key`, `*/builder.py`, `*/onefile.py`, `old/`
 - No shared library between components — each has its own `core/` with duplicate code
 - No `__init__.py` except `client/core/__init__.py`
 - `sys.excepthook` overridden by both `controller` and `node` with custom handlers
