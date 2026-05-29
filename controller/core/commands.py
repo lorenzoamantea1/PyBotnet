@@ -11,7 +11,7 @@ from .payloads import Payloads
 class Functions:
     def __init__(self, controller, shell):
         self.controller = controller
-        self.shell = shell
+        self.shell_ref = shell
 
     def send_flood(self, url, duration=30, method="GET", threads=100):
         resp, result = self.controller.send_to_all(
@@ -183,7 +183,7 @@ class Commands:
 
     def __init__(self, controller, shell):
         self.controller = controller
-        self.shell = shell
+        self.shell_ref = shell
         self.functions = Functions(controller, shell)
 
     def _parse_arg(self, args, index, default=None, cast=str):
