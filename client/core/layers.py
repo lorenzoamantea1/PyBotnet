@@ -9,13 +9,7 @@ from typing import Optional, Dict, List
 from scapy.layers.dns import DNS, DNSQR
 from datetime import datetime, timedelta
 from scapy.all import IP, TCP, UDP, ICMP, send
-from .utilities import NetworkUtilities, Endpoint
-import base64
-
-
-# Utility function to decode Base64 strings
-def _decode_str(encoded: str) -> str:
-    return base64.b64decode(encoded).decode("utf-8")
+from .utilities import NetworkUtilities, Endpoint, _decode_str
 
 
 class L7Async:
@@ -344,11 +338,7 @@ class WebSocketFlood:
                         for _ in range(10):
                             if (self.until - datetime.now()).total_seconds() <= 0:
                                 break
-                            msg = (
-                                self.net_tools._generate_data_content(256)
-                                if hasattr(self.net_tools, "_generate_data_content")
-                                else "x" * 256
-                            )
+                            msg = self.net_tools._generate_data_content(256)
                             await ws.send_str(msg)
                             await asyncio.sleep(0.1)
             except Exception:

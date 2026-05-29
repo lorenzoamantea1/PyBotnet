@@ -543,9 +543,18 @@ class Node:
     def send_to_all(self, message: str) -> None:
         with self.clients_lock:
             clients = list(self.clients.items())
+        threads = []
         for client_socket, client_data in clients:
-            self.send_to(client_socket, message)
-            self.logger.debug(f"Broadcast to client ID: {client_data['uuid']}")
+            t = threading.Thread(
+                target=self.send_to,
+                args=(client_socket, message),
+                daemon=True,
+            )
+            t.start()
+            threads.append((t, client_data["uuid"]))
+        for t, cid in threads:
+            t.join(timeout=SOCKET_TIMEOUT + 2)
+            self.logger.debug(f"Broadcast to client ID: {cid}")
 
     def receive_bytes(
         self, sock: socket.socket, n: int, addr: Tuple[str, int]

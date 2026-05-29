@@ -270,22 +270,33 @@ class Controller:
         self.logger.info(f"Sending message to {len(nodes)} nodes")
 
         responses = {}
-        for node_id, _ in nodes:
+        lock = threading.Lock()
+
+        def _send(node_id):
             resp = self.send_to(node_id, message)
-            if isinstance(resp, str):
-                try:
-                    responses[node_id] = json.loads(resp)
-                except (json.JSONDecodeError, TypeError):
-                    self.logger.warning(f"Invalid JSON response from node {node_id}: {resp}")
-                    responses[node_id] = {"status": "error", "message": "invalid JSON response", "raw": str(resp)}
-            else:
-                responses[node_id] = {"status": "error", "message": "no response from node"}
+            with lock:
+                if isinstance(resp, str):
+                    try:
+                        responses[node_id] = json.loads(resp)
+                    except (json.JSONDecodeError, TypeError):
+                        self.logger.warning(f"Invalid JSON response from node {node_id}: {resp}")
+                        responses[node_id] = {"status": "error", "message": "invalid JSON response", "raw": str(resp)}
+                else:
+                    responses[node_id] = {"status": "error", "message": "no response from node"}
+
+        threads = [threading.Thread(target=_send, args=(node_id,), daemon=True) for node_id, _ in nodes]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
 
         return responses, True
 
     def receive_bytes(self, sock, n, timeout=None):
         if timeout is not None:
             sock.settimeout(timeout)
+        else:
+            sock.settimeout(self.socket_timeout)
         data = b''
         while len(data) < n:
             try:

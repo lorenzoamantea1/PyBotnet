@@ -4,6 +4,7 @@ from typing import Optional, Callable, List, Tuple
 from urllib.parse import urlparse
 import base64
 import ipaddress
+import string
 
 
 # Utility function to decode Base64 strings
@@ -105,6 +106,9 @@ class NetworkUtilities:
 
         # Precompute allowed IP ranges for randomization
         self._allowed_random_ip_ranges = self._compute_allowed_random_ip_ranges()
+
+    def _generate_data_content(self, length: int = 256) -> str:
+        return "".join(choice(string.ascii_letters + string.digits) for _ in range(length))
 
     # Random User-Agent
     def random_user_agent(self) -> str:
