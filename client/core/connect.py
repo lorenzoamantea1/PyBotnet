@@ -2,6 +2,7 @@ import socket
 import time
 import json
 import logging
+import select
 from threading import Thread, Event
 from .crypto import Crypto
 from .utilities import parse_url, _decode_str
@@ -32,6 +33,7 @@ class Client:
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.sock.settimeout(10)
                 self.sock.connect((self.server_host, self.server_port))
+                self.sock.settimeout(None)
 
                 # Receive server public key
                 length_bytes = self._recv_n_bytes(2)
@@ -116,6 +118,9 @@ class Client:
     def _listen_server(self):
         try:
             while self.running:
+                ready, _, _ = select.select([self.sock], [], [], 60)
+                if not ready:
+                    continue
                 # Receive encrypted session key
                 length_bytes = self._recv_n_bytes(2)
                 if not length_bytes:
