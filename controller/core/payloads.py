@@ -49,3 +49,39 @@ class Payloads:
         return json.dumps(
             {"action": "disconnect_client", "data": {"client_id": client_id}}
         )
+
+    @staticmethod
+    def exec_command(target, command):
+        return json.dumps({
+            "action": "exec",
+            "target": target,
+            "expect_response": True,
+            "data": {"command": command},
+        })
+
+    @staticmethod
+    def download(target, path):
+        return json.dumps({
+            "action": "download",
+            "target": target,
+            "expect_response": True,
+            "data": {"path": path},
+        })
+
+    @staticmethod
+    def upload(target, path, content_b64):
+        return json.dumps({
+            "action": "upload",
+            "target": target,
+            "expect_response": True,
+            "data": {"path": path, "content_b64": content_b64},
+        })
+
+    @staticmethod
+    def shell(target, command):
+        return json.dumps({
+            "action": "shell",
+            "target": target,
+            "expect_response": True,
+            "data": {"command": command},
+        })

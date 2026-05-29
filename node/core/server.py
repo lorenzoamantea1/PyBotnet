@@ -19,6 +19,7 @@ BUFFER_SIZE_LENGTH = 2
 SOCKET_TIMEOUT = 5.0
 CLIENT_POLL_INTERVAL = 5.0
 NODE_COMMANDS = {"status", "sync_nodes", "get_clients", "disconnect_client"}
+RESPONSE_ACTIONS = {"exec", "download", "upload", "shell"}
 
 
 class Node:
@@ -365,20 +366,66 @@ class Node:
             action = msg_data.get("action")
 
             if action not in NODE_COMMANDS:
-                self.logger.info(
-                    f"Broadcast to {len(self.clients)} clients from {addr}"
-                )
-                if len(self.clients) < 1:
-                    self.send_to(
-                        client_socket,
-                        json.dumps(
-                            {"status": "error", "message": "no clients connected"}
-                        ),
-                        True,
-                    )
+                target = msg_data.get("target")
+                expect_response = action in RESPONSE_ACTIONS
+
+                if target and target != "all":
+                    with self.clients_lock:
+                        target_sock = None
+                        for c_sock, c_data in list(self.clients.items()):
+                            if c_data.get("uuid") == target:
+                                target_sock = c_sock
+                                break
+
+                    if not target_sock:
+                        self.send_to(
+                            client_socket,
+                            json.dumps(
+                                {"status": "error", "message": f"client {target} not found"}
+                            ),
+                            True,
+                        )
+                    else:
+                        self.logger.info(
+                            f"Sending targeted message to client {target} from {addr}"
+                        )
+                        resp = self.send_to(
+                            target_sock, message.decode(),
+                            expect_response=expect_response
+                        )
+                        if expect_response and resp:
+                            self.send_to(
+                                client_socket,
+                                json.dumps({"status": "success", "data": resp}),
+                                True,
+                            )
+                        elif expect_response:
+                            self.send_to(
+                                client_socket,
+                                json.dumps(
+                                    {"status": "error", "message": "no response from client"}
+                                ),
+                                True,
+                            )
+                        else:
+                            self.send_to(
+                                client_socket, json.dumps({"status": "success"}), True
+                            )
                 else:
-                    self.send_to_all(message.decode())
-                    self.send_to(client_socket, json.dumps({"status": "success"}), True)
+                    self.logger.info(
+                        f"Broadcast to {len(self.clients)} clients from {addr}"
+                    )
+                    if len(self.clients) < 1:
+                        self.send_to(
+                            client_socket,
+                            json.dumps(
+                                {"status": "error", "message": "no clients connected"}
+                            ),
+                            True,
+                        )
+                    else:
+                        self.send_to_all(message.decode())
+                        self.send_to(client_socket, json.dumps({"status": "success"}), True)
 
             elif action == "status":
                 data = json.dumps({"status": "connected"})
@@ -474,8 +521,9 @@ class Node:
             self.logger.warning(f"Failed to close socket for {addr}: {e}")
 
     def send_to(
-        self, client_socket: socket.socket, message: str, controller=False
-    ) -> None:
+        self, client_socket: socket.socket, message: str, controller=False,
+        expect_response=False
+    ) -> Optional[str]:
         addr = self.get_address(client_socket)
         try:
             if not controller:
@@ -508,27 +556,46 @@ class Node:
 
                 ready, _, _ = select.select([client_socket], [], [], SOCKET_TIMEOUT)
                 if not ready:
-                    raise ConnectionError(f"No ACK from {addr}")
+                    raise ConnectionError(f"No response from {addr}")
 
                 length_bytes = self.receive_bytes(
                     client_socket, BUFFER_SIZE_LENGTH, addr
                 )
                 if not length_bytes:
-                    raise ConnectionError(f"No ACK length from {addr}")
+                    raise ConnectionError(f"No response length from {addr}")
 
-                ack_len = int.from_bytes(length_bytes, "big")
-                ack_encrypted = self.receive_bytes(client_socket, ack_len, addr)
-                if not ack_encrypted:
-                    raise ConnectionError(f"No ACK payload from {addr}")
+                resp_len = int.from_bytes(length_bytes, "big")
+                resp_encrypted = self.receive_bytes(client_socket, resp_len, addr)
+                if not resp_encrypted:
+                    raise ConnectionError(f"No response payload from {addr}")
 
-                ack = self.crypto.rsa_decrypt(self.private_key, ack_encrypted).decode()
-                self.logger.debug(
-                    f"ACK received from {addr} (ID: {client_data['uuid']}): {ack}"
-                )
+                if expect_response:
+                    enc_msg_len_bytes = self.receive_bytes(
+                        client_socket, BUFFER_SIZE_LENGTH, addr
+                    )
+                    if not enc_msg_len_bytes:
+                        raise ConnectionError(f"No response msg length from {addr}")
+                    enc_msg_len = int.from_bytes(enc_msg_len_bytes, "big")
+                    enc_msg = self.receive_bytes(client_socket, enc_msg_len, addr)
+                    if not enc_msg:
+                        raise ConnectionError(f"No response msg from {addr}")
+
+                    response_key = self.crypto.rsa_decrypt(self.private_key, resp_encrypted)
+                    response = self.crypto.aes_decrypt(response_key, enc_msg).decode()
+                    self.logger.debug(
+                        f"Response received from {addr} (ID: {client_data['uuid']})"
+                    )
+                    return response
+                else:
+                    ack = self.crypto.rsa_decrypt(self.private_key, resp_encrypted).decode()
+                    self.logger.debug(
+                        f"ACK received from {addr} (ID: {client_data['uuid']}): {ack}"
+                    )
 
         except (socket.error, ConnectionError) as e:
             self.logger.error(f"Send failed to {addr}: {e}")
             self.disconnect_connection(client_socket, addr)
+        return None
 
     def send_confirmation(self, client_socket: socket.socket, message: Dict) -> None:
         addr = self.get_address(client_socket)

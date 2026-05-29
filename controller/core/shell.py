@@ -75,6 +75,34 @@ class Shell:
                 ),
                 ("ping", self._ping, 2, "ping", "Ping all nodes"),
                 (
+                    "exec",
+                    self._exec,
+                    3,
+                    "exec <node_id> <client_id> <command>",
+                    "Execute a command on a remote client",
+                ),
+                (
+                    "download",
+                    self._download,
+                    3,
+                    "download <node_id> <client_id> <path>",
+                    "Download a file from a remote client",
+                ),
+                (
+                    "upload",
+                    self._upload,
+                    3,
+                    "upload <node_id> <client_id> <local_file> <remote_path>",
+                    "Upload a file to a remote client",
+                ),
+                (
+                    "shell",
+                    self._shell,
+                    3,
+                    "shell <node_id> <client_id>",
+                    "Interactive shell on a remote client",
+                ),
+                (
                     "!",
                     self._shell_exec,
                     3,
@@ -107,6 +135,18 @@ class Shell:
 
     def _clients(self, shell, args):
         self.commands_impl.nodes(shell, ["clients"] + args)
+
+    def _exec(self, shell, args):
+        self.commands_impl.exec_cmd(shell, args)
+
+    def _download(self, shell, args):
+        self.commands_impl.download(shell, args)
+
+    def _upload(self, shell, args):
+        self.commands_impl.upload(shell, args)
+
+    def _shell(self, shell, args):
+        self.commands_impl.shell(shell, args)
 
     def _shell_exec(self, shell, args):
         self.commands_impl.shell_exec(shell, args)
