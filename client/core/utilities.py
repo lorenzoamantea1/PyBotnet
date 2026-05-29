@@ -258,8 +258,6 @@ class NetworkUtilities:
         )
 
         method = method.upper()
-        encoded_method = method.encode().decode("latin-1")
-
         async def run_flood():
             if method in ("GET", "POST", "PUT", "DELETE", "HEAD"):
                 l7_async = L7Async(endpoint, duration=duration)
@@ -296,6 +294,7 @@ class NetworkUtilities:
                 finally:
                     for task in tasks:
                         task.cancel()
+                    await l4_async.wait_done()
 
             elif method == "SLOWLORIS":
                 slowloris = Slowloris(endpoint, duration=duration)

@@ -150,6 +150,7 @@ class Node:
 
         role = self.check_auth(client_socket, addr, client_id)
         if not role:
+            self.disconnect_connection(client_socket, addr)
             return
 
         if role == "client":

