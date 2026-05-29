@@ -96,6 +96,11 @@ class Commands:
             "UDP",
             "DNSAMP",
         ],
+        "MC": [
+            "MCHANDSHAKE",
+            "MCLOGIN",
+            "MCPING",
+        ],
     }
 
     def __init__(self, controller, shell):

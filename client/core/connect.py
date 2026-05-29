@@ -187,8 +187,13 @@ class Client:
                             "UDP",
                             "DNSAMP",
                         )
+                        is_mc_flood = method_upper in (
+                            "MCHANDSHAKE",
+                            "MCLOGIN",
+                            "MCPING",
+                        )
 
-                        if is_l7_http or is_l4_tcp_udp:
+                        if is_l7_http or is_l4_tcp_udp or is_mc_flood:
                             t = Thread(
                                 target=lambda: net_utils.execute_request_async(
                                     endpoint, duration, method, threads

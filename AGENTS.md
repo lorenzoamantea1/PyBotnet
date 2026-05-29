@@ -47,7 +47,9 @@ All components must be run from their own directory (working dir = component roo
 - Permission levels by OS username: `root` = level 3, others = level 1
 - Tab-completion via readline; history saved to `~/.shell_history`
 - `flood <url> [duration(30)] [method(GET)] [threads(100)]` requires level 3
-- Methods: L7 (GET/POST/PUT/DELETE/HEAD/SLOWLORIS/H2RESET/WS), L4 (ACK/SYN/FIN/RST/TCP/UDP/DNSAMP)
+- Methods: L7 (GET/POST/PUT/DELETE/HEAD/SLOWLORIS/H2RESET/WS), L4 (ACK/SYN/FIN/RST/TCP/UDP/DNSAMP), MC (MCHANDSHAKE/MCLOGIN/MCPING)
+- MC methods target Minecraft servers (default port 25565). URL format: `mc.server.com:25565`
+- MCHANDSHAKE: rapid minecraft handshake connections, MCLOGIN: full login with keepalive, MCPING: status+ping requests
 - Controller prompts for confirmation before sending flood commands
 - `flood` commands require confirmation prompt (`y/N`)
 
