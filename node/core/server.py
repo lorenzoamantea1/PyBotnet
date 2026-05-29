@@ -19,7 +19,7 @@ BUFFER_SIZE_LENGTH = 2
 SOCKET_TIMEOUT = 5.0
 CLIENT_POLL_INTERVAL = 5.0
 NODE_COMMANDS = {"status", "sync_nodes", "get_clients", "disconnect_client"}
-RESPONSE_ACTIONS = {"exec", "download", "upload", "shell"}
+RESPONSE_ACTIONS = {"exec", "download", "upload"}
 
 
 class Node:

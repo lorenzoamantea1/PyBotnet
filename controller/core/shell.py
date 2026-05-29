@@ -96,13 +96,6 @@ class Shell:
                     "Upload a file to a remote client",
                 ),
                 (
-                    "shell",
-                    self._shell,
-                    3,
-                    "shell <node_id> <client_id>",
-                    "Interactive shell on a remote client",
-                ),
-                (
                     "!",
                     self._shell_exec,
                     3,
@@ -144,9 +137,6 @@ class Shell:
 
     def _upload(self, shell, args):
         self.commands_impl.upload(shell, args)
-
-    def _shell(self, shell, args):
-        self.commands_impl.shell(shell, args)
 
     def _shell_exec(self, shell, args):
         self.commands_impl.shell_exec(shell, args)

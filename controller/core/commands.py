@@ -149,8 +149,6 @@ class Functions:
             print(f"{Fore.RED}Error: {e}{Style.RESET_ALL}")
             return None
 
-    def send_shell(self, node_id, client_id, command):
-        return self.send_exec(node_id, client_id, command)
 
 
 class Commands:
@@ -373,7 +371,6 @@ class Commands:
             ("exec", "exec <node_id> <client_id> <command>", "Execute a command on a remote client", 3),
             ("download", "download <node_id> <client_id> <path>", "Download a file from a remote client", 3),
             ("upload", "upload <node_id> <client_id> <local_file> <remote_path>", "Upload a file to a remote client", 3),
-            ("shell", "shell <node_id> <client_id>", "Interactive shell on a remote client", 3),
         ])
 
         print(
@@ -618,25 +615,6 @@ class Commands:
             self.functions.send_upload(node_id, client_id, remote_path, content)
         except OSError as e:
             print(f"{Fore.RED}Error reading {local_file}: {e}{Style.RESET_ALL}")
-
-    def shell(self, shell, args):
-        if len(args) < 2:
-            print(f"{Fore.RED}Usage: shell <node_id> <client_id>{Style.RESET_ALL}")
-            return
-        node_id = args[0]
-        client_id = args[1]
-        print(f"{Fore.YELLOW}Entering interactive shell on {node_id}/{client_id}. Type 'exit' to quit.{Style.RESET_ALL}")
-        while True:
-            try:
-                cmd = input(f"{Fore.CYAN}{client_id}$ {Style.RESET_ALL}").strip()
-                if not cmd:
-                    continue
-                if cmd.lower() in ("exit", "quit"):
-                    break
-                self.functions.send_shell(node_id, client_id, cmd)
-            except KeyboardInterrupt:
-                print()
-                break
 
     def quit(self, shell, args):
         self.controller.shutdown()

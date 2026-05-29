@@ -77,11 +77,4 @@ class Payloads:
             "data": {"path": path, "content_b64": content_b64},
         })
 
-    @staticmethod
-    def shell(target, command):
-        return json.dumps({
-            "action": "shell",
-            "target": target,
-            "expect_response": True,
-            "data": {"command": command},
-        })
+

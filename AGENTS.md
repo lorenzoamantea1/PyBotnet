@@ -58,7 +58,7 @@ All components must be run from their own directory (working dir = component roo
 - `exec <node_id> <client_id> <command>` — run shell command on specific client, get stdout/stderr back
 - `download <node_id> <client_id> <path>` — download file from client (base64, saved locally)
 - `upload <node_id> <client_id> <local_file> <remote_path>` — upload file to client
-- `shell <node_id> <client_id>` — interactive shell (loop: send command → show output, type `exit` to quit)
+
 
 ## String obfuscation
 
