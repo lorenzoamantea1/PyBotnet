@@ -348,14 +348,14 @@ class Commands:
                 )
             return
 
-        print(f"\n {Fore.YELLOW}system{Style.RESET_ALL}")
+        print(f"\n {Fore.YELLOW}system:{Style.RESET_ALL}")
         self._print_help_rows(shell, [
             ("help", "help [command]", "Show this help message or details for one command", 1),
             ("quit/exit", "quit | exit", "Exit the interactive shell", 1),
             ("!", "! <command>", "Execute a local shell command (admin only)", 3),
         ])
 
-        print(f"\n {Fore.YELLOW}network{Style.RESET_ALL}")
+        print(f"\n {Fore.YELLOW}network:{Style.RESET_ALL}")
         self._print_help_rows(shell, [
             ("ping", "ping", "Ping all connected nodes", 2),
             ("nodes", "nodes <list|status|sync|clients|disconnect> [node_id]", "Node management operations", 2),
@@ -363,12 +363,12 @@ class Commands:
             ("methods", "methods", "List available flood attack methods", 1),
         ])
 
-        print(f"\n {Fore.YELLOW}attacks{Style.RESET_ALL}")
+        print(f"\n {Fore.YELLOW}attacks:{Style.RESET_ALL}")
         self._print_help_rows(shell, [
             ("flood", "flood <url> [duration] [method] [threads]", "Start flood attack on a URL", 3),
         ])
 
-        print(f"\n {Fore.YELLOW}remote control{Style.RESET_ALL}")
+        print(f"\n {Fore.YELLOW}remote control:{Style.RESET_ALL}")
         self._print_help_rows(shell, [
             ("exec", "exec <node_id> <client_id> <command>", "Execute a command on a remote client", 3),
             ("download", "download <node_id> <client_id> <path>", "Download a file from a remote client", 3),
