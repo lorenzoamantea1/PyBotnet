@@ -85,13 +85,15 @@ Invia la propria chiave effimera al nodo; riceve indietro la chiave di sessione 
 
 ## Esecuzione
 
-Tutti i comandi vanno eseguiti dalla directory del componente (working directory = radice del componente):
+Ogni componente è indipendente e può essere eseguito su macchine diverse in rete. Vanno avviati dalla propria directory (es. `cd node/ && python main.py`).
 
 ```bash
 python node/main.py              # Binds 0.0.0.0:547
 python controller/main.py        # Si connette ai nodi da data/nodes.json
-python client/main.py            # Si connette a 127.0.0.1:547
+python client/main.py            # Si connette a 127.0.0.1:547 (modificabile via codice)
 ```
+
+Il controller e il client si connettono al nodo specificato nella loro configurazione — se sono su macchine diverse, basta impostare l'IP del nodo invece di `127.0.0.1`.
 
 ## Configurazione
 
