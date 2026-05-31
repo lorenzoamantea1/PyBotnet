@@ -17,7 +17,7 @@
   Controller ──────────────────────────────► Node ──────────────────────────────► Client
        ▲                                         │                                    │
        │                                         ▼                                    │
-       └────── JSON response (se expect_response) ──────┘◄────── ACK / risultato ─────┘
+       └──── JSON response (se expect_response) ─┘◄────── ACK / risultato ─────┘
 ```
 
 ## Struttura del progetto
